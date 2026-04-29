@@ -201,11 +201,15 @@ def choose_disk() -> str:
 
 # ── Installation with AI error handling ───────────────────────────────────────
 
-async def run_install(profile: dict, disk: str, username: str, timezone: str) -> bool:
-    """Run the install script, stream output, let AI handle any errors."""
-    log(f"Starting {profile['key']} install on {disk}")
+async def run_install(profile: dict, disk: str, username: str, timezone: str,
+                      attempt: int = 1) -> bool:
+    """Run the install script. On failure, let the AI fix and retry automatically."""
+    log(f"Starting {profile['key']} install on {disk} (attempt {attempt})")
 
-    print(f"\n\033[0;37m  Installing \033[1;36m{profile['label']}\033[0;37m to \033[1;36m{disk}\033[0;37m...\033[0m")
+    print(f"\n\033[0;37m  Installing \033[1;36m{profile['label']}\033[0;37m to "
+          f"\033[1;36m{disk}\033[0;37m")
+    if attempt > 1:
+        print(f"\033[0;90m  (attempt {attempt})\033[0m")
     print(f"\033[0;90m  ─────────────────────────────────────────────────────\033[0m\n")
 
     proc = subprocess.Popen(
@@ -226,27 +230,57 @@ async def run_install(profile: dict, disk: str, username: str, timezone: str) ->
 
     proc.wait()
 
-    if proc.returncode != 0:
-        error_context = "\n".join(output_lines[-20:])
-        print(f"\n\033[1;31m  ✗ Installation error (exit code {proc.returncode})\033[0m")
-        print(f"\033[0;90m  Last output:\033[0m")
-        print(f"\033[0;31m{error_context}\033[0m\n")
+    if proc.returncode == 0:
+        return True
 
-        print(f"\033[1;36m  AI is analyzing the error...\033[0m")
-        diagnosis = await ask_ai(
-            f"The ArchAI installer failed while installing a {profile['key']} profile "
-            f"to disk {disk}. Error output:\n\n{error_context}\n\n"
-            f"Explain what went wrong in 2-3 plain English sentences and what to try next. Be concise."
-        )
-        if diagnosis:
-            ai_print(diagnosis)
-            speak(diagnosis)
+    # ── Installation failed ───────────────────────────────────────────────────
+    error_context = "\n".join(output_lines[-25:])
+    print(f"\n\033[1;31m  ✗ Error on attempt {attempt}\033[0m")
+    print(f"\033[0;31m{error_context}\033[0m\n")
 
-        print("  \033[0;36mWould you like to try again, or go back to the menu? (retry/menu):\033[0m ", end="", flush=True)
-        answer = input().strip().lower()
-        return answer == "retry"
+    # Give up after 3 attempts to prevent infinite loops
+    if attempt >= 3:
+        print("\033[1;31m  ✗ Could not recover after 3 attempts.\033[0m\n")
+        speak("Installation failed after three attempts.")
+        print("  \033[0;36mGo back to the menu? (yes/no):\033[0m ", end="", flush=True)
+        if input().strip().lower() != "no":
+            return False
+        return False
 
-    return True
+    if not ai_available():
+        # No AI — ask the user directly
+        speak("Installation failed.")
+        print("  \033[0;36mRetry or go back to menu? (retry/menu):\033[0m ", end="", flush=True)
+        return input().strip().lower() == "retry"
+
+    # ── AI attempts to diagnose and fix ───────────────────────────────────────
+    print(f"\033[1;36m  AI is analyzing and attempting to fix...\033[0m\n")
+    speak("I hit an error. Let me try to fix it.")
+
+    fix_prompt = (
+        f"The ArchAI installer failed installing a '{profile['key']}' profile to {disk}.\n"
+        f"This is attempt {attempt} of 3.\n\n"
+        f"Error output:\n{error_context}\n\n"
+        f"Instructions:\n"
+        f"1. Use run_shell_command to investigate (lsblk, cat /proc/partitions, dmesg | tail, etc.)\n"
+        f"2. Use run_shell_command to fix the issue — unmount stuck mounts, fix partition names, "
+        f"   clean up /mnt, or whatever the error requires.\n"
+        f"3. After fixing, reply with a ONE sentence summary of what you fixed.\n"
+        f"4. Do NOT re-run the full install script — just fix the underlying issue so retry will work.\n"
+        f"Be direct. Execute fixes immediately."
+    )
+
+    fix_response = await ask_ai(fix_prompt)
+
+    if fix_response:
+        ai_print(fix_response)
+        speak(fix_response)
+
+    # Clean up /mnt before retry in case it's in a partial state
+    subprocess.run(["umount", "-R", "/mnt"], capture_output=True)
+
+    print(f"\n\033[0;36m  Retrying installation...\033[0m\n")
+    return await run_install(profile, disk, username, timezone, attempt=attempt + 1)
 
 
 # ── Timezone helper ───────────────────────────────────────────────────────────
