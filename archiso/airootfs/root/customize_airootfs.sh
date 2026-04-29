@@ -3,12 +3,10 @@
 set -euo pipefail
 
 # ── Python venv + AI SDKs ─────────────────────────────────────────────────────
-# --system-site-packages gives the venv access to python-evdev installed via pacman
-# so we never need to compile it from source
+# --system-site-packages gives the venv access to python-evdev from pacman
 python -m venv --system-site-packages /opt/archspeech
 WHEELS="/usr/local/lib/archspeech/wheels"
 
-# Install pure-Python packages from pre-downloaded wheels (fast, no network)
 if [ -d "$WHEELS" ] && [ "$(ls -A "$WHEELS")" ]; then
     /opt/archspeech/bin/pip install --quiet --no-index --find-links "$WHEELS" \
         anthropic openai
@@ -16,16 +14,25 @@ else
     /opt/archspeech/bin/pip install --quiet anthropic openai
 fi
 
-# llama-cpp-python compiled with Vulkan — works on AMD, Intel, and NVIDIA
-# at runtime. Falls back to CPU automatically if no Vulkan GPU is found.
-CMAKE_ARGS="-DGGML_VULKAN=ON" /opt/archspeech/bin/pip install --quiet llama-cpp-python
+# No llama-cpp-python — Ollama handles local inference with automatic
+# GPU detection (CUDA, ROCm, CPU). Pre-compiled, no chroot build issues.
 
-# TinyLlama is pre-staged in airootfs/usr/local/lib/archspeech/models/
-# by fetch-deps.sh — nothing to download here.
+# ── Ollama model pre-pull ─────────────────────────────────────────────────────
+# Pull TinyLlama so it's available offline on first boot.
+# Ollama stores models in /usr/share/ollama/.ollama/models/
+mkdir -p /usr/share/ollama/.ollama/models
+export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
+
+# Start ollama in background, pull the model, then stop it
+ollama serve &
+OLLAMA_PID=$!
+sleep 3
+ollama pull tinyllama && echo "TinyLlama pulled successfully" || echo "TinyLlama pull failed — will download on first run"
+kill $OLLAMA_PID 2>/dev/null || true
+wait $OLLAMA_PID 2>/dev/null || true
 
 # ── Enable core services ──────────────────────────────────────────────────────
-# archspeech-setup is launched from root's .zlogin (inside getty session)
-# — not as a competing systemd service
+systemctl enable ollama.service
 systemctl enable archspeech.service
 systemctl enable archspeech-voice.service
 systemctl enable archspeech-ptt.service

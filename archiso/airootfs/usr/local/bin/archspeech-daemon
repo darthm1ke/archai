@@ -248,64 +248,20 @@ async def handle_openai_compatible(user_message: str, config: dict) -> str:
 
 # ── Local TinyLlama backend ───────────────────────────────────────────────────
 
-_llama_instance = None
-
-def get_llama():
-    global _llama_instance
-    if _llama_instance is None:
-        try:
-            from llama_cpp import Llama
-        except Exception as e:
-            log.error(f"llama_cpp unavailable: {e}")
-            return None
-
-        model_path = "/usr/local/lib/archspeech/models/tinyllama.gguf"
-        if not Path(model_path).exists():
-            log.error(f"TinyLlama model not found at {model_path}")
-            return None
-
-        gpu_layers = 0
-        try:
-            # vulkaninfo lists available Vulkan GPUs — works for AMD, Intel, NVIDIA
-            r = subprocess.run(["vulkaninfo", "--summary"], capture_output=True, text=True)
-            if r.returncode == 0 and "GPU" in r.stdout:
-                gpu_layers = 32
-                log.info("Vulkan GPU detected — offloading layers")
-            else:
-                # Fallback: check vendor-specific tools
-                for cmd in [["nvidia-smi"], ["rocm-smi"]]:
-                    try:
-                        if subprocess.run(cmd, capture_output=True).returncode == 0:
-                            gpu_layers = 32
-                            log.info(f"{cmd[0]} detected — offloading layers")
-                            break
-                    except FileNotFoundError:
-                        pass
-        except FileNotFoundError:
-            pass
-
-        try:
-            log.info(f"Loading TinyLlama (n_gpu_layers={gpu_layers})")
-            _llama_instance = Llama(model_path=model_path, n_gpu_layers=gpu_layers,
-                                    n_ctx=2048, verbose=False)
-        except Exception as e:
-            log.error(f"Failed to load TinyLlama: {e}")
-            return None
-    return _llama_instance
-
-
 async def handle_local(user_message: str) -> str:
-    llm = get_llama()
-    if llm is None:
-        return "Local AI model unavailable. Please connect a cloud provider via archspeech-setup."
-    prompt = (
-        "<|system|>\n"
-        f"{SYSTEM_PROMPT}</s>\n"
-        f"<|user|>\n{user_message}</s>\n"
-        "<|assistant|>\n"
-    )
-    result = llm(prompt, max_tokens=512, stop=["</s>", "<|user|>"], echo=False)
-    return result["choices"][0]["text"].strip()
+    """Use Ollama's local TinyLlama via its OpenAI-compatible API."""
+    ollama_config = {
+        "provider":      "openai_compatible",
+        "api_key":       "ollama",
+        "api_url":       "http://localhost:11434/v1",
+        "model":         "tinyllama",
+        "tools_enabled": False  # TinyLlama doesn't support tool calling
+    }
+    try:
+        return await handle_openai_compatible(user_message, ollama_config)
+    except Exception as e:
+        log.error(f"Ollama unavailable: {e}")
+        return "Local AI unavailable. Connect a cloud provider: type 'setup' in the terminal."
 
 
 # ── Router ────────────────────────────────────────────────────────────────────

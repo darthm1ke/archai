@@ -40,6 +40,9 @@ htop
 man-db
 man-pages
 
+# --- Local AI inference ---
+ollama
+
 # --- Python (AI daemon runtime) ---
 python
 python-pip
@@ -71,27 +74,6 @@ certbot
 apache
 nginx
 
-# --- GPU drivers (auto-selected at runtime for AI inference) ---
-# Vulkan — works on AMD, Intel, NVIDIA without proprietary kernel modules
-vulkan-icd-loader
-vulkan-headers
-vulkan-tools
-# AMD (open source, in-kernel driver + Vulkan)
-vulkan-radeon
-libva-mesa-driver
-mesa-vdpau
-# Intel (integrated + Arc GPUs)
-vulkan-intel
-intel-compute-runtime
-intel-media-driver
-# NVIDIA (userspace utils — kernel module must be installed separately)
-nvidia-utils
-# OpenCL fallback (works on all via Mesa)
-ocl-icd
-opencl-mesa
-# Shader compiler (needed to build llama-cpp with Vulkan)
-glslang
-shaderc
 
 # --- Installation tools ---
 arch-install-scripts
