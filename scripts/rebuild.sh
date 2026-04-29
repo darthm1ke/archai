@@ -21,17 +21,17 @@ if [ ! -f "$MODEL" ]; then
     exit 1
 fi
 
-# ── Safe cleanup: unmount any lingering chroot mounts before wiping ───────────
+# ── Safe cleanup: lazy-unmount all chroot mounts before wiping ────────────────
 echo ""
 echo "▶ Cleaning work directory..."
-for mount_point in proc sys dev run; do
-    target="$WORK/x86_64/airootfs/$mount_point"
-    if mountpoint -q "$target" 2>/dev/null; then
-        echo "  Unmounting leftover: $target"
-        sudo umount -R "$target" 2>/dev/null || true
-    fi
+AIROOTFS="$WORK/x86_64/airootfs"
+# Lazy unmount (-l) detaches immediately even with open handles — required for
+# kernel virtual filesystems like /proc and /sys inside the chroot
+for mount_point in proc/sys/fs/binfmt_misc dev/pts dev/shm sys proc run; do
+    sudo umount -l "$AIROOTFS/$mount_point" 2>/dev/null || true
 done
-sudo umount -R "$WORK" 2>/dev/null || true
+sudo umount -l "$AIROOTFS" 2>/dev/null || true
+sudo umount -l "$WORK" 2>/dev/null || true
 sudo rm -rf "$WORK"
 mkdir -p "$OUT"
 
