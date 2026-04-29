@@ -1,7 +1,8 @@
 #!/opt/archspeech/bin/python3
 """
 ArchSpeech Push-to-Talk daemon
-Hold Caps Lock → mic opens (LED lights up = you're live)
+Hold Caps Lock  → mic opens (LED lights up = you're live)  [bare metal]
+Hold Right Ctrl → mic opens (QEMU / VM fallback)
 Release         → AI thinks and responds
 
 Works at evdev level: TTY, X11, Wayland — anywhere, always.
@@ -109,14 +110,19 @@ async def send_to_daemon(message: str) -> str:
 
 # ── Keyboard scanning ─────────────────────────────────────────────────────────
 
+# PTT keys: Caps Lock (bare metal, LED feedback) + Right Ctrl (VM fallback)
+PTT_KEYS = {ecodes.KEY_CAPSLOCK, ecodes.KEY_RIGHTCTRL}
+
+
 def find_keyboards() -> list[InputDevice]:
-    """Find all input devices that have a Caps Lock key."""
+    """Find all input devices that have at least one PTT key."""
     keyboards = []
     for path in evdev.list_devices():
         try:
             dev = InputDevice(path)
             caps = dev.capabilities()
-            if ecodes.EV_KEY in caps and ecodes.KEY_CAPSLOCK in caps[ecodes.EV_KEY]:
+            keys = caps.get(ecodes.EV_KEY, [])
+            if any(k in keys for k in PTT_KEYS):
                 keyboards.append(dev)
                 log.info(f"Watching: {dev.name} ({path})")
         except Exception:
@@ -131,19 +137,20 @@ async def watch_keyboard(keyboard: InputDevice):
     wav_path = None
 
     async for event in keyboard.async_read_loop():
-        if event.type != ecodes.EV_KEY or event.code != ecodes.KEY_CAPSLOCK:
+        if event.type != ecodes.EV_KEY or event.code not in PTT_KEYS:
             continue
 
+        key_name = "Caps Lock" if event.code == ecodes.KEY_CAPSLOCK else "Right Ctrl"
+
         if event.value == 1 and recording_proc is None:
-            # ── Caps Lock DOWN — open mic ──────────────────────────────────
-            log.info("Mic open")
+            # ── PTT key DOWN — open mic ────────────────────────────────────
+            log.info(f"Mic open ({key_name})")
             wav_path = tempfile.mktemp(suffix=".wav", dir="/tmp")
             recording_proc = start_recording(wav_path)
-            # High beep = mic is live (Caps Lock LED also lights up naturally)
             beep(880, 80)
 
         elif event.value == 0 and recording_proc is not None:
-            # ── Caps Lock UP — close mic, process ─────────────────────────
+            # ── PTT key UP — close mic, process ───────────────────────────
             log.info("Mic closed, processing...")
             stop_recording(recording_proc)
             recording_proc = None
