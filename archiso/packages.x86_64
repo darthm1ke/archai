@@ -71,5 +71,8 @@ certbot
 apache
 nginx
 
-# --- Arch installer ---
-# archinstall is Arch-only; installation handled via custom script
+# --- Installation tools ---
+arch-install-scripts
+parted
+lvm2
+mdadm

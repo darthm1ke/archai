@@ -19,6 +19,7 @@ import evdev
 from evdev import InputDevice, ecodes
 
 SOCKET_PATH  = "/run/archspeech/daemon.sock"
+VOICE_FIFO   = "/run/archspeech/voice_input"
 LOG_PATH     = Path("/var/log/archspeech/ptt.log")
 WHISPER_SIZE = "base"   # tiny/base/small/medium — base is the sweet spot
 
@@ -160,8 +161,15 @@ async def watch_keyboard(keyboard: InputDevice):
                 continue
 
             log.info(f"Heard: {transcript}")
-            speak("On it.")
 
+            # Write to voice FIFO so the installer can read it as typed input
+            try:
+                with open(VOICE_FIFO, "w") as f:
+                    f.write(transcript + "\n")
+            except Exception:
+                pass
+
+            speak("On it.")
             response = await send_to_daemon(transcript)
             log.info(f"Response: {response[:100]}")
             speak(response)
