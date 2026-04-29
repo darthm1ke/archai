@@ -23,7 +23,8 @@ fi
 # by fetch-deps.sh — nothing to download here.
 
 # ── Enable core services ──────────────────────────────────────────────────────
-systemctl enable archspeech-setup.service
+# archspeech-setup is launched from root's .zlogin (inside getty session)
+# — not as a competing systemd service
 systemctl enable archspeech.service
 systemctl enable archspeech-voice.service
 systemctl enable archspeech-ptt.service
