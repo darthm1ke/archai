@@ -37,7 +37,7 @@ qemu-system-x86_64 \
     -m 4G \
     -smp 4 \
     -cdrom "$ISO" \
-    -drive "file=$DISK,format=qcow2" \
+    -drive "file=$DISK,format=qcow2,if=virtio" \
     -boot d \
     -vga std \
     -display gtk \
