@@ -29,7 +29,7 @@ echo "▶ Cleaning work directory..."
 # child mounts are removed before parents), then lazy-unmount each one.
 # Reading /proc/mounts is the only reliable source of truth — guessing paths
 # misses mounts that got created by the previous build.
-LIVE=$(grep "$WORK" /proc/mounts 2>/dev/null | awk '{print $2}' | sort -r)
+LIVE=$(grep "$WORK" /proc/mounts 2>/dev/null | awk '{print $2}' | sort -r) || true
 if [ -n "$LIVE" ]; then
     echo "  Found live mounts — detaching..."
     echo "$LIVE" | xargs -I{} sudo umount -l {} 2>/dev/null || true
