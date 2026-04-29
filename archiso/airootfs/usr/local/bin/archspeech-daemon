@@ -266,15 +266,21 @@ def get_llama():
 
         gpu_layers = 0
         try:
-            if subprocess.run(["nvidia-smi"], capture_output=True).returncode == 0:
+            # vulkaninfo lists available Vulkan GPUs — works for AMD, Intel, NVIDIA
+            r = subprocess.run(["vulkaninfo", "--summary"], capture_output=True, text=True)
+            if r.returncode == 0 and "GPU" in r.stdout:
                 gpu_layers = 32
-                log.info("NVIDIA GPU — offloading layers")
-        except FileNotFoundError:
-            pass
-        try:
-            if gpu_layers == 0 and subprocess.run(["rocm-smi"], capture_output=True).returncode == 0:
-                gpu_layers = 32
-                log.info("AMD GPU — offloading layers")
+                log.info("Vulkan GPU detected — offloading layers")
+            else:
+                # Fallback: check vendor-specific tools
+                for cmd in [["nvidia-smi"], ["rocm-smi"]]:
+                    try:
+                        if subprocess.run(cmd, capture_output=True).returncode == 0:
+                            gpu_layers = 32
+                            log.info(f"{cmd[0]} detected — offloading layers")
+                            break
+                    except FileNotFoundError:
+                        pass
         except FileNotFoundError:
             pass
 

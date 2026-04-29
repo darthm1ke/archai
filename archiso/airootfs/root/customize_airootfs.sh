@@ -16,8 +16,9 @@ else
     /opt/archspeech/bin/pip install --quiet anthropic openai
 fi
 
-# llama-cpp-python compiles from source — pip caches the build automatically
-/opt/archspeech/bin/pip install --quiet llama-cpp-python
+# llama-cpp-python compiled with Vulkan — works on AMD, Intel, and NVIDIA
+# at runtime. Falls back to CPU automatically if no Vulkan GPU is found.
+CMAKE_ARGS="-DGGML_VULKAN=ON" /opt/archspeech/bin/pip install --quiet llama-cpp-python
 
 # TinyLlama is pre-staged in airootfs/usr/local/lib/archspeech/models/
 # by fetch-deps.sh — nothing to download here.
