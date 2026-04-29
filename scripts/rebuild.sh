@@ -21,9 +21,17 @@ if [ ! -f "$MODEL" ]; then
     exit 1
 fi
 
-# ── Clean only the work dir (not pkg-cache, not models, not wheels) ───────────
+# ── Safe cleanup: unmount any lingering chroot mounts before wiping ───────────
 echo ""
 echo "▶ Cleaning work directory..."
+for mount_point in proc sys dev run; do
+    target="$WORK/x86_64/airootfs/$mount_point"
+    if mountpoint -q "$target" 2>/dev/null; then
+        echo "  Unmounting leftover: $target"
+        sudo umount -R "$target" 2>/dev/null || true
+    fi
+done
+sudo umount -R "$WORK" 2>/dev/null || true
 sudo rm -rf "$WORK"
 mkdir -p "$OUT"
 
