@@ -275,11 +275,11 @@ async def main():
     # AI greeting — active from the very first screen
     print(f"\033[1;36m  AI:\033[0m ", end="", flush=True)
     greeting = await ask_ai(
-        "You are ArchAI, greeting a user who just booted your Linux installer. "
-        f"Their hardware: {gpu} GPU, {ram}GB RAM. "
-        "Greet them in one sentence, mention you can see their hardware looks compatible, "
-        "and tell them to pick an install profile or just describe what they want. "
-        "Be warm and brief — this will be read aloud."
+        "You are ArchAI, an AI installer. "
+        f"User hardware: {gpu} GPU, {ram}GB RAM. "
+        "Say one sentence only: confirm hardware looks good and tell them to pick a profile below. "
+        "Do NOT say 'Have a nice day' or any farewell. Do NOT ask questions. "
+        "End with nothing — the profile menu appears next."
     )
     print(f"\033[0;37m{greeting}\033[0m\n")
     speak(greeting)
