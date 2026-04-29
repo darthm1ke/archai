@@ -1,0 +1,184 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchSpeech Push-to-Talk daemon
+Hold Caps Lock → mic opens (LED lights up = you're live)
+Release         → AI thinks and responds
+
+Works at evdev level: TTY, X11, Wayland — anywhere, always.
+"""
+
+import asyncio
+import subprocess
+import tempfile
+import os
+import sys
+import logging
+from pathlib import Path
+
+import evdev
+from evdev import InputDevice, ecodes
+
+SOCKET_PATH  = "/run/archspeech/daemon.sock"
+LOG_PATH     = Path("/var/log/archspeech/ptt.log")
+WHISPER_SIZE = "base"   # tiny/base/small/medium — base is the sweet spot
+
+logging.basicConfig(
+    filename=str(LOG_PATH),
+    level=logging.INFO,
+    format="%(asctime)s [PTT] %(message)s"
+)
+log = logging.getLogger("archspeech.ptt")
+
+
+# ── Audio ─────────────────────────────────────────────────────────────────────
+
+def start_recording(wav_path: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        ["arecord", "-f", "S16_LE", "-r", "16000", "-c", "1", wav_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+def stop_recording(proc: subprocess.Popen):
+    proc.terminate()
+    proc.wait()
+
+
+# ── Transcription ─────────────────────────────────────────────────────────────
+
+def transcribe(wav_path: str) -> str:
+    """Run whisper on the recorded WAV and return the transcript."""
+    out_dir = Path(wav_path).parent
+    try:
+        subprocess.run(
+            [
+                "whisper", wav_path,
+                "--model", WHISPER_SIZE,
+                "--output_format", "txt",
+                "--output_dir", str(out_dir),
+                "--fp16", "False"
+            ],
+            capture_output=True, text=True, timeout=60
+        )
+        txt = out_dir / (Path(wav_path).stem + ".txt")
+        if txt.exists():
+            text = txt.read_text().strip()
+            txt.unlink()
+            return text
+    except Exception as e:
+        log.error(f"Transcription error: {e}")
+    return ""
+
+
+# ── TTS ───────────────────────────────────────────────────────────────────────
+
+def speak(text: str):
+    """Speak text via espeak-ng — works in TTY and GUI with no model files."""
+    subprocess.Popen(
+        ["espeak-ng", "-s", "160", "-p", "50", text],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+def beep(freq: int, duration_ms: int):
+    """Short audio cue using speaker-test or beep fallback."""
+    subprocess.Popen(
+        ["speaker-test", "-t", "sine", "-f", str(freq),
+         "-l", "1", "-P", str(duration_ms)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+
+# ── AI daemon ─────────────────────────────────────────────────────────────────
+
+async def send_to_daemon(message: str) -> str:
+    try:
+        reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+        writer.write(message.encode())
+        writer.write_eof()
+        await writer.drain()
+        response = await reader.read(65536)
+        writer.close()
+        return response.decode().strip()
+    except Exception as e:
+        log.error(f"Daemon comms error: {e}")
+        return "Sorry, I couldn't reach the AI daemon. Is archspeech.service running?"
+
+
+# ── Keyboard scanning ─────────────────────────────────────────────────────────
+
+def find_keyboards() -> list[InputDevice]:
+    """Find all input devices that have a Caps Lock key."""
+    keyboards = []
+    for path in evdev.list_devices():
+        try:
+            dev = InputDevice(path)
+            caps = dev.capabilities()
+            if ecodes.EV_KEY in caps and ecodes.KEY_CAPSLOCK in caps[ecodes.EV_KEY]:
+                keyboards.append(dev)
+                log.info(f"Watching: {dev.name} ({path})")
+        except Exception:
+            pass
+    return keyboards
+
+
+# ── Main PTT loop ─────────────────────────────────────────────────────────────
+
+async def watch_keyboard(keyboard: InputDevice):
+    recording_proc = None
+    wav_path = None
+
+    async for event in keyboard.async_read_loop():
+        if event.type != ecodes.EV_KEY or event.code != ecodes.KEY_CAPSLOCK:
+            continue
+
+        if event.value == 1 and recording_proc is None:
+            # ── Caps Lock DOWN — open mic ──────────────────────────────────
+            log.info("Mic open")
+            wav_path = tempfile.mktemp(suffix=".wav", dir="/tmp")
+            recording_proc = start_recording(wav_path)
+            # High beep = mic is live (Caps Lock LED also lights up naturally)
+            beep(880, 80)
+
+        elif event.value == 0 and recording_proc is not None:
+            # ── Caps Lock UP — close mic, process ─────────────────────────
+            log.info("Mic closed, processing...")
+            stop_recording(recording_proc)
+            recording_proc = None
+
+            # Low beep = done listening
+            beep(440, 80)
+
+            transcript = transcribe(wav_path)
+            Path(wav_path).unlink(missing_ok=True)
+            wav_path = None
+
+            if not transcript:
+                speak("I didn't catch that. Hold Caps Lock and try again.")
+                log.info("Empty transcript")
+                continue
+
+            log.info(f"Heard: {transcript}")
+            speak("On it.")
+
+            response = await send_to_daemon(transcript)
+            log.info(f"Response: {response[:100]}")
+            speak(response)
+
+
+async def main():
+    keyboards = find_keyboards()
+    if not keyboards:
+        log.error("No keyboards found with Caps Lock key.")
+        sys.exit(1)
+
+    log.info(f"ArchSpeech PTT active on {len(keyboards)} keyboard(s). Hold Caps Lock to talk.")
+    speak("Push to talk ready. Hold Caps Lock to give a command.")
+
+    # Watch all keyboards concurrently
+    await asyncio.gather(*[watch_keyboard(kb) for kb in keyboards])
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
