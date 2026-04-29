@@ -1,0 +1,179 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchAI Live Terminal
+The primary interface. AI is ready immediately.
+Ask it anything — manage the system, install apps, or say
+"install this to my hard drive" to run the guided installer.
+"""
+
+import os, sys, asyncio, subprocess, threading, select
+from pathlib import Path
+
+SOCKET_PATH = "/run/archspeech/daemon.sock"
+VOICE_FIFO  = Path("/run/archspeech/voice_input")
+
+BANNER = """
+\033[1;36m █████╗ ██████╗  ██████╗██╗  ██╗     █████╗ ██╗\033[0m
+\033[1;36m██╔══██╗██╔══██╗██╔════╝██║  ██║    ██╔══██╗██║\033[0m
+\033[1;36m███████║██████╔╝██║     ███████║    ███████║██║\033[0m
+\033[1;36m██╔══██║██╔══██╗██║     ██╔══██║    ██╔══██║██║\033[0m
+\033[1;36m██║  ██║██║  ██║╚██████╗██║  ██║    ██║  ██║██║\033[0m
+\033[1;36m╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝\033[0m
+\033[0;90m ──────────────────────────────────────────────────────────\033[0m
+\033[0;37m  AI-native Linux  \033[0;90m|\033[0;37m  Running live from USB — nothing installed yet\033[0m
+\033[0;90m ──────────────────────────────────────────────────────────\033[0m
+\033[0;37m  Hold \033[1;36mCaps Lock\033[0;37m to speak  \033[0;90m|\033[0;37m  \033[1;36mRight Ctrl\033[0;37m in a VM  \033[0;90m|\033[0;37m  Type + \033[1;36mEnter\033[0m
+\033[0;90m ──────────────────────────────────────────────────────────\033[0m
+"""
+
+
+def speak(text: str):
+    subprocess.Popen(["espeak-ng", "-s", "160", "-p", "50", text],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+async def ask_ai(message: str) -> str:
+    try:
+        reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+        writer.write(message.encode())
+        writer.write_eof()
+        await writer.drain()
+        response = await reader.read(65536)
+        writer.close()
+        return response.decode().strip()
+    except Exception:
+        return None
+
+
+def ai_online() -> bool:
+    return Path(SOCKET_PATH).exists()
+
+
+# ── Voice input ───────────────────────────────────────────────────────────────
+
+_voice_queue: list[str] = []
+
+def _voice_reader():
+    try:
+        if not VOICE_FIFO.exists():
+            os.mkfifo(str(VOICE_FIFO))
+        while True:
+            with open(VOICE_FIFO, "r") as f:
+                line = f.read().strip()
+                if line:
+                    _voice_queue.append(line)
+    except Exception:
+        pass
+
+threading.Thread(target=_voice_reader, name="voice", daemon=True).start()
+
+
+def get_input() -> str:
+    while True:
+        if _voice_queue:
+            text = _voice_queue.pop(0)
+            print(f"\033[0;35m  [voice: {text}]\033[0m")
+            return text
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            return sys.stdin.readline().strip()
+
+
+# ── Setup wizard (only if AI is offline) ─────────────────────────────────────
+
+def setup_api_key():
+    """Quick provider setup if daemon socket isn't ready yet."""
+    print("\033[0;33m  AI layer is starting up. Connect a provider to activate it now:\033[0m\n")
+    print("  \033[1;36m1)\033[0m Claude (Anthropic) — sk-ant-... key")
+    print("  \033[1;36m2)\033[0m OpenAI             — sk-... key")
+    print("  \033[1;36m3)\033[0m Skip — I'll use text mode for now\n")
+    print("  \033[0;36mChoice (default 3):\033[0m ", end="", flush=True)
+    choice = input().strip() or "3"
+
+    config_path = Path("/etc/archspeech/config.json")
+    import json
+
+    if choice == "1":
+        print("  \033[0;36mAnthropic API key:\033[0m ", end="", flush=True)
+        key = input().strip()
+        config = {"provider": "anthropic", "api_key": key, "model": "claude-opus-4-7",
+                  "fallback": "local", "voice_enabled": True}
+        config_path.write_text(json.dumps(config, indent=2))
+        config_path.chmod(0o600)
+        subprocess.run(["systemctl", "restart", "archspeech.service"], capture_output=True)
+        print("  \033[0;32m✓ Connected. AI activating...\033[0m")
+        import time; time.sleep(3)
+
+    elif choice == "2":
+        print("  \033[0;36mOpenAI API key:\033[0m ", end="", flush=True)
+        key = input().strip()
+        config = {"provider": "openai_compatible", "api_key": key,
+                  "api_url": "https://api.openai.com/v1", "model": "gpt-4o",
+                  "fallback": "local", "voice_enabled": True}
+        config_path.write_text(json.dumps(config, indent=2))
+        config_path.chmod(0o600)
+        subprocess.run(["systemctl", "restart", "archspeech.service"], capture_output=True)
+        print("  \033[0;32m✓ Connected. AI activating...\033[0m")
+        import time; time.sleep(3)
+
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+
+async def main():
+    os.system("clear")
+    print(BANNER)
+
+    # If daemon isn't up yet, offer quick setup
+    if not ai_online():
+        setup_api_key()
+
+    # Greet
+    if ai_online():
+        print(f"\033[1;36m  AI:\033[0m ", end="", flush=True)
+        greeting = await ask_ai(
+            "You are ArchAI, running live from a USB drive. "
+            "Greet the user in one sentence. Tell them you can manage their system, "
+            "install software, configure things, or install to disk if they want. "
+            "Be direct. No farewells."
+        )
+        if greeting:
+            print(f"\033[0;37m{greeting}\033[0m")
+            speak(greeting)
+        print()
+    else:
+        print("\033[0;90m  Running in text mode. Type commands below.\033[0m\n")
+
+    # Main interaction loop
+    while True:
+        print("\033[0;36m  You:\033[0m ", end="", flush=True)
+        try:
+            user_input = get_input()
+        except (KeyboardInterrupt, EOFError):
+            print("\n")
+            break
+
+        if not user_input:
+            continue
+
+        # Check for install-to-disk intent and launch installer
+        install_keywords = ["install to", "install this", "install arch", "put it on",
+                            "install on my drive", "install to disk", "install to hard"]
+        if any(kw in user_input.lower() for kw in install_keywords):
+            print("\n  \033[0;32mLaunching guided installer...\033[0m\n")
+            speak("Launching the installer.")
+            os.execv("/opt/archspeech/bin/python3",
+                     ["/opt/archspeech/bin/python3", "/usr/local/bin/archspeech-installer"])
+
+        if ai_online():
+            print("\033[1;36m  AI:\033[0m ", end="", flush=True)
+            response = await ask_ai(user_input)
+            if response:
+                print(f"\033[0;37m{response}\033[0m\n")
+                speak(response)
+        else:
+            print("\033[0;33m  AI offline — type 'setup' to connect a provider\033[0m\n")
+            if user_input.lower() == "setup":
+                setup_api_key()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
