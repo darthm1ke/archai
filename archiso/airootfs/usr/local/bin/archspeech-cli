@@ -1,0 +1,31 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchSpeech CLI — send a text command to the AI daemon and print the response.
+Usage: archspeech-cli "install nginx and enable it on boot"
+"""
+
+import sys
+import asyncio
+import socket
+
+SOCKET_PATH = "/run/archspeech/daemon.sock"
+
+
+async def send(message: str) -> str:
+    reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+    writer.write(message.encode())
+    writer.write_eof()
+    await writer.drain()
+    response = await reader.read(65536)
+    writer.close()
+    return response.decode()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: archspeech-cli \"your command here\"")
+        sys.exit(1)
+
+    message = " ".join(sys.argv[1:])
+    response = asyncio.run(send(message))
+    print(response)

@@ -1,0 +1,14 @@
+[Unit]
+Description=ArchSpeech Push-to-Talk (Caps Lock)
+After=archspeech.service keyd.service sound.target
+Requires=archspeech.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/archspeech-ptt
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

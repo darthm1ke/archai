@@ -1,0 +1,27 @@
+# ArchSpeech AI daemon — scoped privilege escalation
+# This user runs the AI layer and is granted NOPASSWD access
+# to specific system management categories only.
+
+Defaults:archspeech !requiretty
+
+# Package management
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/pacman
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/yay
+
+# Service control
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/systemctl
+
+# Web server management
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/apachectl
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/nginx
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/certbot
+
+# File ownership in system paths
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/chown * /etc/*
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/chown * /var/www/*
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/chown * /srv/*
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/chmod * /etc/*
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/chmod * /var/www/*
+
+# Network management
+archspeech ALL=(ALL) NOPASSWD: /usr/bin/nmcli

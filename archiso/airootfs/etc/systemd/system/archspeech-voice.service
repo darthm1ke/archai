@@ -1,0 +1,15 @@
+[Unit]
+Description=ArchSpeech Voice Module
+After=archspeech.service sound.target
+Requires=archspeech.service
+
+[Service]
+Type=simple
+User=archspeech
+Group=archspeech
+ExecStart=/usr/local/bin/archspeech-voice
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,355 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchAI Daemon
+Multi-backend: Anthropic (Claude), OpenAI, Ollama, LM Studio, custom endpoint,
+or local TinyLlama 1.1B (always available, no internet required).
+Configured via /etc/archspeech/config.json.
+"""
+
+import os
+import json
+import subprocess
+import logging
+import asyncio
+from pathlib import Path
+
+CONFIG_PATH = Path("/etc/archspeech/config.json")
+LOG_PATH    = Path("/var/log/archspeech/daemon.log")
+SOCKET_PATH = "/run/archspeech/daemon.sock"
+
+logging.basicConfig(
+    filename=str(LOG_PATH),
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+log = logging.getLogger("archspeech")
+
+
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError(f"Config not found at {CONFIG_PATH}. Run archspeech-setup first.")
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
+
+
+def run_command(command: str) -> tuple[int, str, str]:
+    log.info(f"Executing: {command}")
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
+    log.info(f"Exit {result.returncode}: {result.stdout[:200]}")
+    return result.returncode, result.stdout, result.stderr
+
+
+# ── Tool definitions (shared across all backends) ────────────────────────────
+
+TOOLS_ANTHROPIC = [
+    {
+        "name": "run_shell_command",
+        "description": "Execute a shell command. Use sudo where the scoped sudoers rules permit.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command":     {"type": "string", "description": "Shell command to run."},
+                "explanation": {"type": "string", "description": "Plain-English explanation of what this does."}
+            },
+            "required": ["command", "explanation"]
+        }
+    },
+    {
+        "name": "read_file",
+        "description": "Read a system file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "write_file",
+        "description": "Write content to a system file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":    {"type": "string"},
+                "content": {"type": "string"}
+            },
+            "required": ["path", "content"]
+        }
+    }
+]
+
+TOOLS_OPENAI = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell_command",
+            "description": "Execute a shell command. Use sudo where the scoped sudoers rules permit.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command":     {"type": "string", "description": "Shell command to run."},
+                    "explanation": {"type": "string", "description": "Plain-English explanation."}
+                },
+                "required": ["command", "explanation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a system file.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a system file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path":    {"type": "string"},
+                    "content": {"type": "string"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    }
+]
+
+SYSTEM_PROMPT = """You are ArchSpeech, the AI core of an Arch Linux-based operating system.
+You have direct, scoped access to system tools and can manage packages, services, files,
+web servers, SSL certificates, network configuration, and more on behalf of the user.
+
+Guidelines:
+- Always explain what you are about to do before executing commands.
+- Prefer safe, reversible operations. Warn before anything destructive.
+- When installing packages, use pacman first; yay only for AUR packages.
+- Keep responses concise — they may be spoken aloud via TTS.
+- Execute multi-step tasks in order and report progress.
+- You run as the 'archspeech' system user with scoped sudo."""
+
+
+# ── Tool execution (shared) ───────────────────────────────────────────────────
+
+def execute_tool(name: str, args: dict) -> str:
+    if name == "run_shell_command":
+        log.info(args.get("explanation", ""))
+        rc, stdout, stderr = run_command(args["command"])
+        return stdout if rc == 0 else f"ERROR (exit {rc}): {stderr}"
+    elif name == "read_file":
+        try:
+            return Path(args["path"]).read_text()
+        except Exception as e:
+            return f"Error reading file: {e}"
+    elif name == "write_file":
+        try:
+            p = Path(args["path"])
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(args["content"])
+            return f"Written: {args['path']}"
+        except Exception as e:
+            return f"Error writing file: {e}"
+    return f"Unknown tool: {name}"
+
+
+# ── Anthropic backend ─────────────────────────────────────────────────────────
+
+async def handle_anthropic(user_message: str, config: dict) -> str:
+    import anthropic
+    client = anthropic.Anthropic(api_key=config["api_key"])
+    messages = [{"role": "user", "content": user_message}]
+
+    while True:
+        response = client.messages.create(
+            model=config.get("model", "claude-opus-4-7"),
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            tools=TOOLS_ANTHROPIC,
+            messages=messages
+        )
+
+        text_parts = [b.text for b in response.content if hasattr(b, "text")]
+
+        if response.stop_reason == "end_turn":
+            return " ".join(text_parts)
+
+        if response.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                result = execute_tool(block.name, block.input)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result
+                })
+            messages.append({"role": "user", "content": tool_results})
+
+
+# ── OpenAI-compatible backend (OpenAI, Ollama, LM Studio, custom) ─────────────
+
+async def handle_openai_compatible(user_message: str, config: dict) -> str:
+    from openai import OpenAI
+    client = OpenAI(
+        api_key=config.get("api_key", "ollama"),
+        base_url=config.get("api_url", "https://api.openai.com/v1")
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user_message}
+    ]
+
+    # Some local models don't support tool calling — try with tools, fall back without
+    use_tools = config.get("tools_enabled", True)
+
+    while True:
+        kwargs = dict(
+            model=config.get("model", "gpt-4o"),
+            messages=messages,
+            max_tokens=4096
+        )
+        if use_tools:
+            kwargs["tools"] = TOOLS_OPENAI
+            kwargs["tool_choice"] = "auto"
+
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except Exception as e:
+            if "tool" in str(e).lower() and use_tools:
+                log.warning("Model doesn't support tools, retrying without.")
+                use_tools = False
+                continue
+            raise
+
+        choice = response.choices[0]
+        msg = choice.message
+
+        if not msg.tool_calls:
+            return msg.content or ""
+
+        messages.append(msg)
+        for call in msg.tool_calls:
+            args = json.loads(call.function.arguments)
+            result = execute_tool(call.function.name, args)
+            messages.append({
+                "role":         "tool",
+                "tool_call_id": call.id,
+                "content":      result
+            })
+
+
+# ── Local TinyLlama backend ───────────────────────────────────────────────────
+
+_llama_instance = None
+
+def get_llama():
+    global _llama_instance
+    if _llama_instance is None:
+        from llama_cpp import Llama
+        model_path = "/usr/local/lib/archspeech/models/tinyllama.gguf"
+
+        # Auto-detect GPU layers
+        gpu_layers = 0
+        try:
+            r = subprocess.run(["nvidia-smi"], capture_output=True)
+            if r.returncode == 0:
+                gpu_layers = 32
+                log.info("NVIDIA GPU detected — offloading layers")
+        except FileNotFoundError:
+            pass
+        if gpu_layers == 0:
+            try:
+                r = subprocess.run(["rocm-smi"], capture_output=True)
+                if r.returncode == 0:
+                    gpu_layers = 32
+                    log.info("AMD GPU detected — offloading layers")
+            except FileNotFoundError:
+                pass
+
+        log.info(f"Loading TinyLlama (n_gpu_layers={gpu_layers})")
+        _llama_instance = Llama(
+            model_path=model_path,
+            n_gpu_layers=gpu_layers,
+            n_ctx=2048,
+            verbose=False
+        )
+    return _llama_instance
+
+
+async def handle_local(user_message: str) -> str:
+    llm = get_llama()
+    prompt = (
+        "<|system|>\n"
+        f"{SYSTEM_PROMPT}</s>\n"
+        f"<|user|>\n{user_message}</s>\n"
+        "<|assistant|>\n"
+    )
+    result = llm(prompt, max_tokens=512, stop=["</s>", "<|user|>"], echo=False)
+    return result["choices"][0]["text"].strip()
+
+
+# ── Router ────────────────────────────────────────────────────────────────────
+
+async def handle_request(user_message: str, config: dict) -> str:
+    provider = config.get("provider", "local").lower()
+
+    # Always try cloud first if configured, fall back to local on any failure
+    if provider == "anthropic":
+        try:
+            return await handle_anthropic(user_message, config)
+        except Exception as e:
+            log.warning(f"Anthropic failed ({e}), falling back to TinyLlama")
+            return await handle_local(user_message)
+
+    elif provider in ("openai", "openai_compatible"):
+        try:
+            return await handle_openai_compatible(user_message, config)
+        except Exception as e:
+            log.warning(f"OpenAI-compatible failed ({e}), falling back to TinyLlama")
+            return await handle_local(user_message)
+
+    else:
+        return await handle_local(user_message)
+
+
+# ── Unix socket server ────────────────────────────────────────────────────────
+
+async def unix_socket_server():
+    config = load_config()
+    socket_path = Path(SOCKET_PATH)
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    if socket_path.exists():
+        socket_path.unlink()
+
+    log.info(f"ArchSpeech daemon started (provider: {config.get('provider','anthropic')}).")
+
+    async def handle_client(reader, writer):
+        try:
+            data = await reader.read(65536)
+            message = data.decode().strip()
+            log.info(f"Received: {message[:100]}")
+            reply = await handle_request(message, config)
+            writer.write(reply.encode())
+            await writer.drain()
+        except Exception as e:
+            log.error(f"Handler error: {e}")
+            writer.write(f"Error: {e}".encode())
+            await writer.drain()
+        finally:
+            writer.close()
+
+    server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(unix_socket_server())
