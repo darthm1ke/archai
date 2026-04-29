@@ -302,25 +302,7 @@ def setup_ai_provider():
 
 # ── Main installer flow ───────────────────────────────────────────────────────
 
-def wait_for_keypress():
-    """Block until the user presses any key — gives them time to read the screen."""
-    import tty, termios
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
 async def main():
-    clear()
-    print(READY_SCREEN)
-
-    # Hold here until the user is ready — no more 5ms flash
-    wait_for_keypress()
-
     clear()
     print(BANNER)
 
