@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inside the airootfs chroot at build time.
-set -euo pipefail
+set -uo pipefail
 
 # ── Python venv + AI SDKs ─────────────────────────────────────────────────────
 # --system-site-packages gives the venv access to python-evdev from pacman
