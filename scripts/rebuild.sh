@@ -21,17 +21,20 @@ if [ ! -f "$MODEL" ]; then
     exit 1
 fi
 
-# ── Safe cleanup: lazy-unmount all chroot mounts before wiping ────────────────
+# ── Safe cleanup: read live mounts from /proc/mounts and detach all ──────────
 echo ""
 echo "▶ Cleaning work directory..."
-AIROOTFS="$WORK/x86_64/airootfs"
-# Lazy unmount (-l) detaches immediately even with open handles — required for
-# kernel virtual filesystems like /proc and /sys inside the chroot
-for mount_point in proc/sys/fs/binfmt_misc dev/pts dev/shm sys proc run; do
-    sudo umount -l "$AIROOTFS/$mount_point" 2>/dev/null || true
-done
-sudo umount -l "$AIROOTFS" 2>/dev/null || true
-sudo umount -l "$WORK" 2>/dev/null || true
+
+# Find every mount that lives under our work dir (sorted deepest first so
+# child mounts are removed before parents), then lazy-unmount each one.
+# Reading /proc/mounts is the only reliable source of truth — guessing paths
+# misses mounts that got created by the previous build.
+LIVE=$(grep "$WORK" /proc/mounts 2>/dev/null | awk '{print $2}' | sort -r)
+if [ -n "$LIVE" ]; then
+    echo "  Found live mounts — detaching..."
+    echo "$LIVE" | xargs -I{} sudo umount -l {} 2>/dev/null || true
+fi
+
 sudo rm -rf "$WORK"
 mkdir -p "$OUT"
 
