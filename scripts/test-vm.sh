@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 ISO=$(find "$PROJECT/build" -name "*.iso" | sort | tail -1)
-DISK="/tmp/archai-test.qcow2"
+DISK="$PROJECT/archai-test.qcow2"
 
 if [ ! -f "$ISO" ]; then
     echo "✗ No ISO found in $PROJECT/build/ — run rebuild.sh first"

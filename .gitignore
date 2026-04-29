@@ -10,6 +10,9 @@ archiso/airootfs/usr/local/lib/archspeech/wheels/
 # Secrets
 archiso/airootfs/etc/archspeech/config.json
 
+# Test VM disk
+archai-test.qcow2
+
 # OS
 .DS_Store
 Thumbs.db

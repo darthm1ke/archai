@@ -201,27 +201,25 @@ def choose_disk() -> str:
 
 # ── Installation with AI error handling ───────────────────────────────────────
 
-def run_install(profile: dict, disk: str, username: str, timezone: str) -> bool:
+async def run_install(profile: dict, disk: str, username: str, timezone: str) -> bool:
     """Run the install script, stream output, let AI handle any errors."""
     log(f"Starting {profile['key']} install on {disk}")
 
     print(f"\n\033[0;37m  Installing \033[1;36m{profile['label']}\033[0;37m to \033[1;36m{disk}\033[0;37m...\033[0m")
     print(f"\033[0;90m  ─────────────────────────────────────────────────────\033[0m\n")
 
-    env = os.environ.copy()
     proc = subprocess.Popen(
         ["bash", str(profile["script"]), disk, username, timezone],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env=env
+        env=os.environ.copy()
     )
 
     output_lines = []
     for line in proc.stdout:
         line = line.rstrip()
         output_lines.append(line)
-        # Show progress lines from log.sh
         if any(marker in line for marker in ["▶", "✓", "⚠", "█", "INFO", "ERROR"]):
             print(f"  {line}")
         log(line)
@@ -229,26 +227,22 @@ def run_install(profile: dict, disk: str, username: str, timezone: str) -> bool:
     proc.wait()
 
     if proc.returncode != 0:
-        # Collect last 20 lines of output as error context
         error_context = "\n".join(output_lines[-20:])
         print(f"\n\033[1;31m  ✗ Installation error (exit code {proc.returncode})\033[0m")
         print(f"\033[0;90m  Last output:\033[0m")
         print(f"\033[0;31m{error_context}\033[0m\n")
 
-        # Ask the AI to diagnose and attempt a fix
         print(f"\033[1;36m  AI is analyzing the error...\033[0m")
-        diagnosis = ai_say(
+        diagnosis = await ask_ai(
             f"The ArchAI installer failed while installing a {profile['key']} profile "
-            f"to disk {disk}. Here is the error output:\n\n{error_context}\n\n"
-            f"Explain what went wrong in plain English (2-3 sentences), "
-            f"then say what you will try to fix it. Be concise."
+            f"to disk {disk}. Error output:\n\n{error_context}\n\n"
+            f"Explain what went wrong in 2-3 plain English sentences and what to try next. Be concise."
         )
         if diagnosis:
             ai_print(diagnosis)
             speak(diagnosis)
 
-        # Let the user decide
-        print("  \033[0;36mWould you like me to try again, or go back to the menu? (retry/menu):\033[0m ", end="", flush=True)
+        print("  \033[0;36mWould you like to try again, or go back to the menu? (retry/menu):\033[0m ", end="", flush=True)
         answer = input().strip().lower()
         return answer == "retry"
 
@@ -325,7 +319,7 @@ async def main():
 
         speak(f"Installing your {profile['label']}. I'll tell you if anything goes wrong.")
 
-        retry = run_install(profile, disk, username, timezone)
+        retry = await run_install(profile, disk, username, timezone)
         if retry:
             continue
 
