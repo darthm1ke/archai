@@ -1,0 +1,360 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchAI Guided Installer
+Profile selection → hardware detect → disk/user setup → scripted install
+Backed by TinyLlama 1.1B for conversation, predefined scripts for execution.
+"""
+
+import os, sys, json, subprocess, asyncio, time
+from pathlib import Path
+
+SOCKET_PATH     = "/run/archspeech/daemon.sock"
+SETUP_FLAG      = Path("/etc/archspeech/.setup_complete")
+CONFIG_PATH     = Path("/etc/archspeech/config.json")
+PROFILES_DIR    = Path("/usr/local/lib/archspeech/installer/profiles")
+LOG_PATH        = Path("/var/log/archspeech/execution.log")
+
+BANNER = """
+\033[1;36m █████╗ ██████╗  ██████╗██╗  ██╗     █████╗ ██╗\033[0m
+\033[1;36m██╔══██╗██╔══██╗██╔════╝██║  ██║    ██╔══██╗██║\033[0m
+\033[1;36m███████║██████╔╝██║     ███████║    ███████║██║\033[0m
+\033[1;36m██╔══██║██╔══██╗██║     ██╔══██║    ██╔══██║██║\033[0m
+\033[1;36m██║  ██║██║  ██║╚██████╗██║  ██║    ██║  ██║██║\033[0m
+\033[1;36m╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝\033[0m
+\033[0;90m ─────────────────────────────────────────────────\033[0m
+\033[0;37m  AI-native Linux  │  Hold \033[1;36mCaps Lock\033[0;37m to speak\033[0m
+\033[0;90m ─────────────────────────────────────────────────\033[0m
+"""
+
+PROFILES = {
+    "1": {
+        "key":    "gaming",
+        "label":  "Gaming rig",
+        "pitch":  "Ditch Windows for good — Steam, Proton, GameMode, full KDE desktop",
+        "script": PROFILES_DIR / "gaming.sh"
+    },
+    "2": {
+        "key":    "server",
+        "label":  "Home server",
+        "pitch":  "Own your data — nginx, Docker, SSL, hardened SSH, no desktop bloat",
+        "script": PROFILES_DIR / "server.sh"
+    },
+    "3": {
+        "key":    "hobby",
+        "label":  "Hobby machine",
+        "pitch":  "A bit of everything — GNOME, media, dev tools, no commitment",
+        "script": PROFILES_DIR / "hobby.sh"
+    },
+    "4": {
+        "key":    "pentest",
+        "label":  "Pentesting lab",
+        "pitch":  "Built like a pro red-teamer — nmap, Metasploit, Wireshark, Tor, XFCE",
+        "script": PROFILES_DIR / "pentest.sh"
+    },
+    "5": {
+        "key":    "developer",
+        "label":  "Dev workstation",
+        "pitch":  "Ship things — KDE, VS Code, Docker, full language stack, databases",
+        "script": PROFILES_DIR / "developer.sh"
+    },
+}
+
+
+def clear(): os.system("clear")
+
+def speak(text: str):
+    subprocess.Popen(["espeak-ng", "-s", "160", "-p", "50", text],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def log(msg: str):
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOG_PATH, "a") as f:
+        f.write(f"  INFO       {msg}\n")
+
+
+# ── Hardware detection ────────────────────────────────────────────────────────
+
+def detect_disks() -> list[dict]:
+    result = subprocess.run(
+        ["lsblk", "-J", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"],
+        capture_output=True, text=True
+    )
+    disks = []
+    try:
+        data = json.loads(result.stdout)
+        for dev in data.get("blockdevices", []):
+            if dev.get("type") == "disk":
+                disks.append({"name": f"/dev/{dev['name']}", "size": dev.get("size","?")})
+    except Exception:
+        pass
+    return disks
+
+def detect_gpu() -> str:
+    result = subprocess.run(["lspci"], capture_output=True, text=True)
+    out = result.stdout.lower()
+    if "nvidia" in out: return "NVIDIA"
+    if "amd" in out or "radeon" in out: return "AMD"
+    if "intel" in out and "vga" in out: return "Intel"
+    return "Unknown"
+
+def detect_ram_gb() -> int:
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemTotal"):
+                kb = int(line.split()[1])
+                return kb // 1024 // 1024
+    return 0
+
+
+# ── AI connector ──────────────────────────────────────────────────────────────
+
+async def ask_ai(message: str) -> str:
+    """Send a message to whichever AI backend is running (local or cloud)."""
+    try:
+        reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+        writer.write(message.encode())
+        writer.write_eof()
+        await writer.drain()
+        response = await reader.read(65536)
+        writer.close()
+        return response.decode().strip()
+    except Exception:
+        return ""
+
+def ai_available() -> bool:
+    return Path(SOCKET_PATH).exists()
+
+
+# ── Input (voice or keyboard) ────────────────────────────────────────────────
+
+def prompt(label: str, default: str = "") -> str:
+    hint = f" (default: {default})" if default else ""
+    print(f"\033[0;36m  {label}{hint}:\033[0m ", end="", flush=True)
+    val = input().strip()
+    return val if val else default
+
+
+# ── Profile selection ─────────────────────────────────────────────────────────
+
+def show_profile_menu():
+    print("\n\033[1;37m  What are you building? Pick the closest match:\033[0m\n")
+    for num, p in PROFILES.items():
+        print(f"  \033[1;36m{num})\033[0m \033[1;37m{p['label']:<22}\033[0m "
+              f"\033[0;90m— {p['pitch']}\033[0m")
+    print()
+
+def choose_profile() -> dict:
+    while True:
+        print("  \033[0;36mEnter number or describe what you want:\033[0m ", end="", flush=True)
+        choice = input().strip()
+
+        if choice in PROFILES:
+            return PROFILES[choice]
+
+        # Simple keyword matching so TinyLlama doesn't have to work hard
+        cl = choice.lower()
+        if any(w in cl for w in ["game","gaming","steam","windows","play"]):
+            return PROFILES["1"]
+        if any(w in cl for w in ["server","host","selfhost","nginx","docker","headless"]):
+            return PROFILES["2"]
+        if any(w in cl for w in ["hobby","everything","bit of","general","casual"]):
+            return PROFILES["3"]
+        if any(w in cl for w in ["pentest","security","hack","red team","kali","nmap"]):
+            return PROFILES["4"]
+        if any(w in cl for w in ["dev","code","develop","program","vscode","docker"]):
+            return PROFILES["5"]
+
+        print("  \033[0;33m  Try entering a number (1-5), or describe it differently.\033[0m\n")
+
+
+# ── Disk selection ────────────────────────────────────────────────────────────
+
+def choose_disk() -> str:
+    disks = detect_disks()
+    if not disks:
+        print("\033[0;31m  No disks detected. Cannot continue.\033[0m")
+        sys.exit(1)
+
+    print("\n\033[1;37m  Available disks:\033[0m\n")
+    for i, d in enumerate(disks, 1):
+        print(f"  \033[1;36m{i})\033[0m {d['name']:<14} \033[0;90m{d['size']}\033[0m")
+    print()
+
+    while True:
+        choice = prompt("Which disk should ArchAI install to? (number or path)")
+        if choice.isdigit() and 1 <= int(choice) <= len(disks):
+            disk = disks[int(choice)-1]["name"]
+        elif choice.startswith("/dev/"):
+            disk = choice
+        else:
+            print("  Please enter a number or a device path like /dev/sda\n")
+            continue
+
+        print(f"\n  \033[0;33m⚠  This will erase everything on {disk}. "
+              f"Type YES to confirm:\033[0m ", end="", flush=True)
+        if input().strip() == "YES":
+            return disk
+        print("  Cancelled — pick another disk.\n")
+
+
+# ── Timezone helper ───────────────────────────────────────────────────────────
+
+def guess_timezone() -> str:
+    try:
+        r = subprocess.run(["curl", "-s", "https://ipapi.co/timezone"],
+                           capture_output=True, text=True, timeout=3)
+        if r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return "UTC"
+
+
+# ── First-time AI setup ───────────────────────────────────────────────────────
+
+def setup_ai_provider():
+    """If no config exists, offer to connect a cloud AI or keep using local."""
+    if CONFIG_PATH.exists():
+        return
+
+    print("\n\033[1;37m  ── Connect a cloud AI (optional) ──────────────────\033[0m")
+    print("\033[0;37m  I'm currently running on a local model (TinyLlama).")
+    print("  Connecting Claude or OpenAI gives you much more power.")
+    print("  You can skip this and do it later.\033[0m\n")
+
+    providers = [
+        ("1", "Claude (Anthropic)", "anthropic", "sk-ant-"),
+        ("2", "OpenAI",             "openai",    "sk-"),
+        ("3", "Ollama (local)",     "ollama",    None),
+        ("4", "Skip for now",       None,        None),
+    ]
+
+    for num, label, _, _ in providers:
+        print(f"  \033[1;36m{num})\033[0m {label}")
+    print()
+
+    choice = prompt("Choice", "4")
+    selected = next((p for p in providers if p[0] == choice), providers[-1])
+
+    if selected[2] is None:
+        return
+
+    api_key = ""
+    api_url  = ""
+    model    = ""
+
+    if selected[2] == "anthropic":
+        api_key = prompt("Anthropic API key (sk-ant-...)")
+        api_url = "https://api.anthropic.com"
+        model   = "claude-opus-4-7"
+    elif selected[2] == "openai":
+        api_key = prompt("OpenAI API key (sk-...)")
+        api_url = "https://api.openai.com/v1"
+        model   = "gpt-4o"
+    elif selected[2] == "ollama":
+        api_url = prompt("Ollama URL", "http://localhost:11434/v1")
+        model   = prompt("Model name", "llama3.1")
+        api_key = "ollama"
+
+    config = {
+        "provider":      selected[2],
+        "api_key":       api_key,
+        "api_url":       api_url,
+        "model":         model,
+        "fallback":      "local",
+        "voice_enabled": True,
+        "wake_word":     "archai",
+        "log_commands":  True
+    }
+
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    CONFIG_PATH.chmod(0o600)
+
+    subprocess.run(["systemctl", "restart", "archspeech.service"],
+                   capture_output=True)
+    print("  \033[0;32m✓ Cloud AI connected.\033[0m\n")
+
+
+# ── Main installer flow ───────────────────────────────────────────────────────
+
+async def main():
+    clear()
+    print(BANNER)
+
+    gpu  = detect_gpu()
+    ram  = detect_ram_gb()
+    log(f"Hardware: GPU={gpu}, RAM={ram}GB")
+
+    speak("Welcome to ArchAI. I'll walk you through the installation. "
+          "Use your keyboard or hold Caps Lock to speak.")
+
+    print(f"\033[0;90m  Detected: {gpu} GPU  │  {ram}GB RAM\033[0m\n")
+
+    # Optional cloud AI setup before install
+    setup_ai_provider()
+
+    # Profile selection
+    show_profile_menu()
+    profile = choose_profile()
+    print(f"\n  \033[0;32m✓ Profile: {profile['label']}\033[0m\n")
+    speak(f"Great choice. Setting up your {profile['label']}.")
+    log(f"Profile selected: {profile['key']}")
+
+    # Disk
+    disk = choose_disk()
+    log(f"Target disk: {disk}")
+
+    # User details
+    print()
+    username = prompt("Username")
+    while not username.isidentifier():
+        print("  Lowercase letters and numbers only.\n")
+        username = prompt("Username")
+
+    print(f"  \033[0;36m  Password for {username}:\033[0m ", end="", flush=True)
+    import getpass
+    password = getpass.getpass("")
+
+    # Timezone
+    guessed_tz = guess_timezone()
+    timezone   = prompt("Timezone", guessed_tz)
+
+    # Confirm
+    print(f"""
+  \033[1;37m  Ready to install:\033[0m
+  \033[0;36m  Profile  \033[0m {profile['label']}
+  \033[0;36m  Disk     \033[0m {disk}
+  \033[0;36m  User     \033[0m {username}
+  \033[0;36m  Timezone \033[0m {timezone}
+  \033[0;33m
+  This will erase {disk}. Type GO to start:\033[0m """, end="", flush=True)
+
+    if input().strip() != "GO":
+        print("  Cancelled.")
+        sys.exit(0)
+
+    speak("Installing now. I'll keep you posted. This takes about 10 minutes.")
+    log(f"Starting {profile['key']} installation on {disk}")
+
+    # Set password inside the install script via chroot
+    env = os.environ.copy()
+    env["ARCHAI_PASSWORD"] = password
+
+    result = subprocess.run(
+        ["bash", str(profile["script"]), disk, username, timezone],
+        env=env
+    )
+
+    if result.returncode == 0:
+        print("\n  \033[1;32m✓ Installation complete.\033[0m")
+        speak("Installation complete. Your system is ready. Remove the USB and reboot.")
+        print("\n  \033[0;37m  Remove the USB drive and reboot. Your AI is waiting.\033[0m\n")
+        SETUP_FLAG.touch()
+    else:
+        print("\n  \033[1;31m✗ Installation failed. Check the execution log below.\033[0m")
+        speak("Installation failed. Check the log for details.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

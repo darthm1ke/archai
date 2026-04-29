@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ArchSpeech UI — launches the full tmux interface
+# Top pane: AI conversation  |  Bottom pane: live execution log
+
+SESSION="archai"
+LOG="/var/log/archspeech/execution.log"
+
+mkdir -p "$(dirname "$LOG")"
+touch "$LOG"
+
+# Kill any stale session
+tmux kill-session -t "$SESSION" 2>/dev/null
+
+# New session, no auto-rename
+tmux new-session -d -s "$SESSION" -x "$(tput cols)" -y "$(tput lines)"
+tmux set-option -t "$SESSION" allow-rename off
+
+# ── Status bar ────────────────────────────────────────────────────────────────
+tmux set-option -t "$SESSION" status on
+tmux set-option -t "$SESSION" status-style          "bg=colour235,fg=colour39"
+tmux set-option -t "$SESSION" status-left-length    30
+tmux set-option -t "$SESSION" status-right-length   60
+tmux set-option -t "$SESSION" status-left           " #[bold,fg=colour39]ARCH#[fg=colour255]AI#[nobold]  "
+tmux set-option -t "$SESSION" status-right          " #[fg=colour245]Hold [Caps Lock] to speak  │  Type + [Enter] "
+tmux set-option -t "$SESSION" status-interval       2
+tmux set-option -t "$SESSION" pane-border-style     "fg=colour238"
+tmux set-option -t "$SESSION" pane-active-border-style "fg=colour39"
+
+# ── Split: 75% top (conversation) / 25% bottom (execution log) ───────────────
+tmux split-window -t "$SESSION" -v -p 25
+
+# Bottom pane — live execution log
+tmux send-keys -t "$SESSION:0.1" \
+  "printf '\033[0;90m  ── Execution log ─────────────────────────────────\033[0m\n'; tail -f $LOG" \
+  Enter
+
+# Top pane — main installer/conversation UI
+tmux select-pane -t "$SESSION:0.0"
+tmux send-keys -t "$SESSION:0.0" "archspeech-installer" Enter
+
+# Attach
+tmux attach-session -t "$SESSION"
