@@ -253,39 +253,45 @@ _llama_instance = None
 def get_llama():
     global _llama_instance
     if _llama_instance is None:
-        from llama_cpp import Llama
-        model_path = "/usr/local/lib/archspeech/models/tinyllama.gguf"
+        try:
+            from llama_cpp import Llama
+        except Exception as e:
+            log.error(f"llama_cpp unavailable: {e}")
+            return None
 
-        # Auto-detect GPU layers
+        model_path = "/usr/local/lib/archspeech/models/tinyllama.gguf"
+        if not Path(model_path).exists():
+            log.error(f"TinyLlama model not found at {model_path}")
+            return None
+
         gpu_layers = 0
         try:
-            r = subprocess.run(["nvidia-smi"], capture_output=True)
-            if r.returncode == 0:
+            if subprocess.run(["nvidia-smi"], capture_output=True).returncode == 0:
                 gpu_layers = 32
-                log.info("NVIDIA GPU detected — offloading layers")
+                log.info("NVIDIA GPU — offloading layers")
         except FileNotFoundError:
             pass
-        if gpu_layers == 0:
-            try:
-                r = subprocess.run(["rocm-smi"], capture_output=True)
-                if r.returncode == 0:
-                    gpu_layers = 32
-                    log.info("AMD GPU detected — offloading layers")
-            except FileNotFoundError:
-                pass
+        try:
+            if gpu_layers == 0 and subprocess.run(["rocm-smi"], capture_output=True).returncode == 0:
+                gpu_layers = 32
+                log.info("AMD GPU — offloading layers")
+        except FileNotFoundError:
+            pass
 
-        log.info(f"Loading TinyLlama (n_gpu_layers={gpu_layers})")
-        _llama_instance = Llama(
-            model_path=model_path,
-            n_gpu_layers=gpu_layers,
-            n_ctx=2048,
-            verbose=False
-        )
+        try:
+            log.info(f"Loading TinyLlama (n_gpu_layers={gpu_layers})")
+            _llama_instance = Llama(model_path=model_path, n_gpu_layers=gpu_layers,
+                                    n_ctx=2048, verbose=False)
+        except Exception as e:
+            log.error(f"Failed to load TinyLlama: {e}")
+            return None
     return _llama_instance
 
 
 async def handle_local(user_message: str) -> str:
     llm = get_llama()
+    if llm is None:
+        return "Local AI model unavailable. Please connect a cloud provider via archspeech-setup."
     prompt = (
         "<|system|>\n"
         f"{SYSTEM_PROMPT}</s>\n"
