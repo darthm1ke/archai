@@ -2,6 +2,7 @@
 # ArchAI Install Profile: Home Server
 # Packages: headless, nginx, certbot, docker, fail2ban, ssh hardening
 source /usr/local/lib/archspeech/installer/log.sh
+source /usr/local/lib/archspeech/installer/common.sh
 
 DISK="$1"
 USERNAME="$2"
@@ -19,7 +20,7 @@ parted -s "$DISK" mklabel gpt \
   mkpart ESP fat32 1MiB 513MiB set 1 esp on \
   mkpart root ext4 513MiB 100% >> "$LOG" 2>&1
 
-PART_EFI="${DISK}1"; PART_ROOT="${DISK}2"
+PART_EFI="$(part "$DISK" 1)"; PART_ROOT="$(part "$DISK" 2)"
 
 log_progress 10 "Formatting and mounting"
 run_logged "Format EFI"  mkfs.fat -F32 "$PART_EFI"

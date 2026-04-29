@@ -25,6 +25,7 @@ file_permissions=(
   ["/usr/local/bin/archspeech-ui"]="0:0:755"
   ["/usr/local/bin/archspeech-installer"]="0:0:755"
   ["/usr/local/lib/archspeech/installer/log.sh"]="0:0:755"
+  ["/usr/local/lib/archspeech/installer/common.sh"]="0:0:755"
   ["/usr/local/lib/archspeech/installer/profiles/gaming.sh"]="0:0:755"
   ["/usr/local/lib/archspeech/installer/profiles/server.sh"]="0:0:755"
   ["/usr/local/lib/archspeech/installer/profiles/hobby.sh"]="0:0:755"
