@@ -1,0 +1,13 @@
+
+  ArchSpeech Linux — AI-native OS
+  ─────────────────────────────────────────────────────
+  Voice command:  Say "archspeech" followed by your request
+  Text command:   archspeech-cli "your command here"
+
+  The AI layer is connected to Claude and can manage packages,
+  services, web servers, SSL, files, and more — just ask.
+  ─────────────────────────────────────────────────────
+  For installation: archinstall
+  For Wi-Fi:        iwctl
+  ─────────────────────────────────────────────────────
+

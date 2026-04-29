@@ -1,0 +1,75 @@
+# --- Base system ---
+base
+base-devel
+linux618
+linux-firmware
+linux618-headers
+mkinitcpio
+mkinitcpio-archiso
+systemd
+systemd-sysvcompat
+
+# --- Boot ---
+grub
+efibootmgr
+syslinux
+dosfstools
+
+# --- Network ---
+networkmanager
+nm-connection-editor
+openssh
+curl
+wget
+
+# --- File system tools ---
+e2fsprogs
+btrfs-progs
+xfsprogs
+ntfs-3g
+exfatprogs
+
+# --- Core utilities ---
+sudo
+bash
+zsh
+vim
+nano
+git
+htop
+man-db
+man-pages
+
+# --- Python (AI daemon runtime) ---
+python
+python-pip
+python-requests
+python-websockets
+python-pyaudio
+python-evdev
+python-openai-whisper
+python-openai
+
+# --- Push-to-talk / hotkey ---
+keyd
+espeak-ng
+
+# --- UI / installer ---
+tmux
+pciutils
+usbutils
+
+# --- Audio (voice module) ---
+alsa-utils
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+
+# --- SSL / Web management ---
+certbot
+apache
+nginx
+
+# --- Arch installer ---
+# archinstall is Arch-only; installation handled via custom script

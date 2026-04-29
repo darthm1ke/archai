@@ -1,0 +1,15 @@
+# Build output
+build/
+work/
+
+# Package and model caches (too large for git — run scripts/fetch-deps.sh)
+pkg-cache/
+archiso/airootfs/usr/local/lib/archspeech/models/*.gguf
+archiso/airootfs/usr/local/lib/archspeech/wheels/
+
+# Secrets
+archiso/airootfs/etc/archspeech/config.json
+
+# OS
+.DS_Store
+Thumbs.db
