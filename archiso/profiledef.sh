@@ -30,4 +30,5 @@ file_permissions=(
   ["/usr/local/lib/archspeech/installer/profiles/pentest.sh"]="0:0:755"
   ["/usr/local/lib/archspeech/installer/profiles/developer.sh"]="0:0:755"
   ["/root/customize_airootfs.sh"]="0:0:755"
+  ["/root/.automated_script.sh"]="0:0:755"
 )
