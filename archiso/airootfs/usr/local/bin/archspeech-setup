@@ -1,0 +1,226 @@
+#!/opt/archspeech/bin/python3
+"""
+ArchSpeech First-Boot Setup Wizard
+Detects which AI provider the user wants, collects credentials,
+then hands control directly to the AI.
+"""
+
+import json
+import os
+import sys
+import subprocess
+import asyncio
+import time
+from pathlib import Path
+
+CONFIG_PATH     = Path("/etc/archspeech/config.json")
+SETUP_DONE_FLAG = Path("/etc/archspeech/.setup_complete")
+SOCKET_PATH     = "/run/archspeech/daemon.sock"
+
+BANNER = """
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║             Welcome to ArchSpeech Linux                      ║
+║             AI-native operating system                       ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+  I can install the OS, manage packages, configure web servers,
+  set up SSL, create scripts — anything you'd normally need the
+  command line for. Just talk to me.
+
+  First, let's connect your AI provider.
+"""
+
+PROVIDERS = [
+    {
+        "key":      "anthropic",
+        "label":    "Claude (Anthropic)",
+        "note":     "Recommended — best reasoning and tool use",
+        "needs_key": True,
+        "key_hint": "starts with sk-ant-",
+        "key_url":  "https://console.anthropic.com",
+        "default_model": "claude-opus-4-7",
+        "api_url":  None
+    },
+    {
+        "key":      "openai",
+        "label":    "OpenAI (ChatGPT)",
+        "note":     "Requires internet + OpenAI account",
+        "needs_key": True,
+        "key_hint": "starts with sk-",
+        "key_url":  "https://platform.openai.com/api-keys",
+        "default_model": "gpt-4o",
+        "api_url":  "https://api.openai.com/v1"
+    },
+    {
+        "key":      "ollama",
+        "label":    "Ollama (local)",
+        "note":     "No internet needed — runs models on this machine",
+        "needs_key": False,
+        "default_model": "llama3.1",
+        "api_url":  "http://localhost:11434/v1"
+    },
+    {
+        "key":      "lmstudio",
+        "label":    "LM Studio (local)",
+        "note":     "No internet needed — connects to your LM Studio server",
+        "needs_key": False,
+        "default_model": "local-model",
+        "api_url":  "http://localhost:1234/v1"
+    },
+    {
+        "key":      "custom",
+        "label":    "Custom endpoint",
+        "note":     "Any OpenAI-compatible API (private server, etc.)",
+        "needs_key": True,
+        "key_hint": "API key for your endpoint (enter 'none' if not required)",
+        "key_url":  None,
+        "default_model": "default",
+        "api_url":  None
+    }
+]
+
+
+def clear():
+    os.system("clear")
+
+def print_banner():
+    clear()
+    print(BANNER)
+
+def choose_provider() -> dict:
+    print("  Which AI provider would you like to use?\n")
+    for i, p in enumerate(PROVIDERS, 1):
+        print(f"  {i}) {p['label']:<28} — {p['note']}")
+    print()
+
+    while True:
+        print("  Enter number (default=1): ", end="", flush=True)
+        choice = input().strip()
+        if choice == "":
+            return PROVIDERS[0]
+        if choice.isdigit() and 1 <= int(choice) <= len(PROVIDERS):
+            return PROVIDERS[int(choice) - 1]
+        print("  Please enter a number between 1 and", len(PROVIDERS))
+
+def prompt_api_key(provider: dict) -> str:
+    hint = provider.get("key_hint", "")
+    url  = provider.get("key_url")
+    if url:
+        print(f"\n  Get your key at: {url}")
+    print(f"\n  Enter your API key ({hint}):")
+    print("  > ", end="", flush=True)
+    return input().strip()
+
+def prompt_custom_url() -> str:
+    print("\n  Enter the full API base URL (e.g. http://192.168.1.10:11434/v1):")
+    print("  > ", end="", flush=True)
+    return input().strip()
+
+def prompt_model(provider: dict) -> str:
+    default = provider["default_model"]
+    print(f"\n  Model name (press Enter for '{default}'):")
+    print("  > ", end="", flush=True)
+    model = input().strip()
+    return model if model else default
+
+def build_config(provider: dict, api_key: str, api_url: str, model: str) -> dict:
+    # Ollama and LM Studio use "openai" compatible backend
+    backend = provider["key"] if provider["key"] == "anthropic" else "openai_compatible"
+
+    return {
+        "provider":      backend,
+        "provider_name": provider["key"],
+        "api_key":       api_key or "none",
+        "api_url":       api_url,
+        "model":         model,
+        "voice_enabled": True,
+        "wake_word":     "archspeech",
+        "log_commands":  True,
+        "tts_voice":     "en_US-ryan-medium",
+        "tools_enabled": True
+    }
+
+def save_config(config: dict):
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    CONFIG_PATH.chmod(0o600)
+
+def start_daemon():
+    print("\n  Starting AI daemon...", end="", flush=True)
+    subprocess.run(["systemctl", "start", "archspeech.service"], check=True)
+    for _ in range(10):
+        if Path(SOCKET_PATH).exists():
+            break
+        time.sleep(1)
+        print(".", end="", flush=True)
+    print(" ready.\n")
+
+async def send_to_daemon(message: str) -> str:
+    reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+    writer.write(message.encode())
+    writer.write_eof()
+    await writer.drain()
+    response = await reader.read(65536)
+    writer.close()
+    return response.decode()
+
+async def greet_and_handoff():
+    response = await send_to_daemon(
+        "The user has just completed first-time setup of ArchSpeech. "
+        "Greet them warmly and briefly. Tell them you can install the OS to disk "
+        "right now, or help with anything else. Ask what they'd like to do. "
+        "Keep it to 3-4 sentences — it may be read aloud."
+    )
+    print(f"  AI: {response}\n")
+
+async def interactive_loop():
+    print("  Type your request, or press Ctrl+C to drop to the shell.\n")
+    while True:
+        print("  You: ", end="", flush=True)
+        try:
+            user_input = input().strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n\n  Dropping to shell. Run 'archspeech-cli \"request\"' anytime.\n")
+            break
+        if not user_input:
+            continue
+        print("  AI: thinking...", end="\r", flush=True)
+        response = await send_to_daemon(user_input)
+        print(f"  AI: {response}\n")
+
+async def main():
+    if SETUP_DONE_FLAG.exists():
+        sys.exit(0)
+
+    print_banner()
+
+    provider = choose_provider()
+    print(f"\n  Selected: {provider['label']}")
+
+    api_key = ""
+    api_url = provider.get("api_url") or ""
+
+    if provider["key"] == "custom":
+        api_url = prompt_custom_url()
+
+    if provider["needs_key"]:
+        api_key = prompt_api_key(provider)
+
+    model = prompt_model(provider)
+
+    config = build_config(provider, api_key, api_url, model)
+    save_config(config)
+
+    print("\n  Configuration saved.")
+    start_daemon()
+
+    SETUP_DONE_FLAG.touch()
+
+    await greet_and_handoff()
+    await interactive_loop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

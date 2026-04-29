@@ -1,0 +1,8 @@
+# mkinitcpio preset file for the 'linux618' package on archiso
+
+PRESETS=('archiso')
+
+ALL_kver='/boot/vmlinuz-6.18-x86_64'
+archiso_config='/etc/mkinitcpio.conf.d/archiso.conf'
+
+archiso_image="/boot/initramfs-6.18-x86_64.img"
