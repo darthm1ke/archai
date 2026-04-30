@@ -32,6 +32,9 @@ echo ""
 # PULSE_SERVER tells QEMU exactly which socket to use for audio
 export PULSE_SERVER="unix:$PULSE_SOCK"
 
+echo "  Serial: all kernel + systemd output dumped to this terminal"
+echo ""
+
 qemu-system-x86_64 \
     -enable-kvm \
     -m 4G \
@@ -41,6 +44,7 @@ qemu-system-x86_64 \
     -boot d \
     -vga std \
     -display gtk \
+    -serial stdio \
     -net "user,hostfwd=tcp::2222-:22" \
     -net nic \
     $AUDIO_ARGS
