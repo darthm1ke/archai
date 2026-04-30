@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fast rebuild — wipes only the work directory, preserves all caches.
-# Packages, TinyLlama, and pip wheels are never re-downloaded.
+# AIos fast rebuild — wipes only the work directory, preserves all caches.
+# Packages, model, and pip wheels are never re-downloaded.
 set -euo pipefail
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,9 +14,9 @@ if ! command -v mkarchiso &>/dev/null; then
     exit 1
 fi
 
-MODEL="$PROFILE/airootfs/usr/local/lib/archspeech/models/tinyllama.gguf"
+MODEL="$PROFILE/airootfs/usr/local/lib/archspeech/models/qwen3-0.6b.gguf"
 if [ ! -f "$MODEL" ]; then
-    echo "✗ TinyLlama model not found."
+    echo "✗ Qwen3 0.6B model not found."
     echo "  Run:  bash $PROJECT/scripts/fetch-deps.sh"
     exit 1
 fi
@@ -25,10 +25,6 @@ fi
 echo ""
 echo "▶ Cleaning work directory..."
 
-# Find every mount that lives under our work dir (sorted deepest first so
-# child mounts are removed before parents), then lazy-unmount each one.
-# Reading /proc/mounts is the only reliable source of truth — guessing paths
-# misses mounts that got created by the previous build.
 LIVE=$(grep "$WORK" /proc/mounts 2>/dev/null | awk '{print $2}' | sort -r) || true
 if [ -n "$LIVE" ]; then
     echo "  Found live mounts — detaching..."
@@ -39,29 +35,30 @@ sudo rm -rf "$WORK"
 mkdir -p "$OUT"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-echo "▶ Building ISO..."
+echo "▶ Building AIos ISO..."
 echo "  Packages cached in:  $PROJECT/pkg-cache/"
-echo "  Model pre-staged:    $(du -sh "$MODEL" | cut -f1)"
+echo "  Model:               $(du -sh "$MODEL" | cut -f1) — Qwen3 0.6B"
 echo ""
 
 sudo mkarchiso -v -w "$WORK" -o "$OUT" "$PROFILE"
 
 # ── Report ────────────────────────────────────────────────────────────────────
-ISO=$(find "$OUT" -name "*.iso" | sort -t- -k3 -V | tail -1)
+ISO=$(find "$OUT" -name "aios-*.iso" | sort -t- -k2 -V | tail -1)
 if [ -f "$ISO" ]; then
     SIZE=$(du -sh "$ISO" | cut -f1)
     echo ""
-    echo "══════════════════════════════════════════════════"
-    echo "  ✓ ISO ready: $ISO"
+    echo "══════════════════════════════════════════════════════"
+    echo "  ✓ AIos ISO ready: $(basename "$ISO")"
     echo "  ✓ Size: $SIZE"
     echo ""
-    echo "  Boot in VM:"
-    echo "  qemu-system-x86_64 -enable-kvm -m 4G -smp 4 \\"
-    echo "    -cdrom $ISO \\"
-    echo "    -boot d -vga virtio -display gtk"
-    echo "══════════════════════════════════════════════════"
+    echo "  Test in VM:"
+    echo "  bash $PROJECT/scripts/test-vm.sh"
+    echo ""
+    echo "  Deploy to Ventoy:"
+    echo "  cp $ISO /run/media/\$USER/Ventoy/"
+    echo "══════════════════════════════════════════════════════"
     echo ""
 else
-    echo "✗ Build failed — no ISO found in $OUT"
+    echo "✗ Build failed — no aios-*.iso found in $OUT"
     exit 1
 fi
