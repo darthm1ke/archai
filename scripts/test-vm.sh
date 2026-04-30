@@ -40,8 +40,8 @@ echo ""
 
 qemu-system-x86_64 \
     -enable-kvm \
-    -m 4G \
-    -smp 4 \
+    -m 6G \
+    -smp 8 \
     -cdrom "$ISO" \
     -drive "file=$DISK,format=qcow2,if=virtio" \
     -boot d \
