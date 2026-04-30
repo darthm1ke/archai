@@ -32,9 +32,11 @@ echo ""
 # PULSE_SERVER tells QEMU exactly which socket to use for audio
 export PULSE_SERVER="unix:$PULSE_SOCK"
 
-echo "  Serial: all kernel + systemd output dumped to this terminal"
+LOG="$PROJECT/aios-boot.log"
+echo "  Serial: all kernel + systemd output → this terminal AND $LOG"
 echo ""
 
+# Tee serial output to both terminal and log file so it can be shared for analysis
 qemu-system-x86_64 \
     -enable-kvm \
     -m 4G \
@@ -47,4 +49,7 @@ qemu-system-x86_64 \
     -serial stdio \
     -net "user,hostfwd=tcp::2222-:22" \
     -net nic \
-    $AUDIO_ARGS
+    $AUDIO_ARGS 2>&1 | tee "$LOG"
+
+echo ""
+echo "Boot log saved to: $LOG"
