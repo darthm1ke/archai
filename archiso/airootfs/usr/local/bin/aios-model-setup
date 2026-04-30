@@ -70,12 +70,16 @@ def upload_blob(filepath: str, sha256: str) -> bool:
         def __init__(self):
             self.f = open(filepath, "rb")
             self.sent = 0
+            self.last_pct = -1
         def read(self, size=-1):
             data = self.f.read(CHUNK_SIZE if size < 0 else size)
             self.sent += len(data)
             pct = int(self.sent / file_size * 100)
-            bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
-            write_status(f"Uploading: [{bar}] {pct}% ({self.sent // 1024 // 1024}/{file_size // 1024 // 1024}MB)")
+            # Only print when percentage actually changes — prevents log spam
+            if pct != self.last_pct:
+                bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+                write_status(f"Uploading: [{bar}] {pct}% ({self.sent // 1024 // 1024}/{file_size // 1024 // 1024}MB)")
+                self.last_pct = pct
             return data
         def __len__(self):
             return file_size
