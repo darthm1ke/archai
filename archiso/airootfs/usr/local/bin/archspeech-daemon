@@ -134,6 +134,9 @@ Guidelines:
 - Execute multi-step tasks in order and report progress.
 - You run as the 'archspeech' system user with scoped sudo."""
 
+# Minimal prompt for local 0.6B model — keeps token count low for fast inference
+LOCAL_SYSTEM_PROMPT = "You are AIos, an AI assistant for Arch Linux. Give short, direct answers. For package installs use pacman. Be concise."
+
 
 # ── Tool execution (shared) ───────────────────────────────────────────────────
 
@@ -308,19 +311,26 @@ def ensure_ollama_model(model: str = "qwen3:0.6b") -> bool:
 
 
 async def handle_local(user_message: str) -> str:
-    """Use Ollama native /api/chat — supports think:false at top level unlike OpenAI-compat endpoint."""
+    """Use Ollama native /api/chat with minimal prompt for fast 0.6B inference."""
     ensure_ollama_model("aios-local")
-    context = load_cheatsheet(user_message)
     import urllib.request as _ur, json as _json
+
+    # Only inject cheat sheet for complex Arch-specific queries, not casual conversation
+    context = load_cheatsheet(user_message) if len(user_message.split()) > 3 else ""
 
     payload = _json.dumps({
         "model":   "aios-local",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": LOCAL_SYSTEM_PROMPT},  # Short prompt = fast
             {"role": "user",   "content": user_message + context}
         ],
-        "think":  False,   # Disable Qwen3 thinking — must be top-level in native API
-        "stream": False
+        "think":   False,   # Disable Qwen3 thinking — top-level in native API
+        "stream":  False,
+        "options": {
+            "num_ctx":     2048,   # Half of before — 0.6B doesn't need 4096
+            "temperature": 0.7,
+            "num_predict": 256     # Cap output length — keeps responses fast and concise
+        }
     }).encode()
 
     req = _ur.Request(

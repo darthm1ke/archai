@@ -1,4 +1,4 @@
 FROM /usr/local/lib/archspeech/models/qwen3-0.6b.gguf
-PARAMETER num_ctx 4096
+PARAMETER num_ctx 2048
 PARAMETER temperature 0.7
-SYSTEM """You are AIos, the AI core of an Arch-based Linux system. Help users manage their system through voice or text commands. Be concise — responses may be spoken aloud."""
+PARAMETER num_predict 256
