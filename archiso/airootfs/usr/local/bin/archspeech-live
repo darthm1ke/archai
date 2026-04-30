@@ -49,6 +49,34 @@ def ai_online() -> bool:
     return Path(SOCKET_PATH).exists()
 
 
+def detect_hardware() -> str:
+    """Return a one-line hardware summary."""
+    gpu = "Unknown GPU"
+    ram_gb = 0
+    cpu = "Unknown CPU"
+    cores = 0
+    try:
+        import subprocess
+        out = subprocess.run(["lspci"], capture_output=True, text=True).stdout.lower()
+        if "nvidia" in out:   gpu = "NVIDIA GPU"
+        elif "amd" in out or "radeon" in out: gpu = "AMD GPU"
+        elif "intel" in out and "vga" in out: gpu = "Intel GPU"
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal"):
+                    ram_gb = int(line.split()[1]) // 1024 // 1024
+                    break
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name") and not cpu.startswith("Intel") and not cpu.startswith("AMD"):
+                    cpu = line.split(":")[1].strip()
+                if line.startswith("processor"):
+                    cores += 1
+    except Exception:
+        pass
+    return f"{cpu} ({cores} cores)  |  {gpu}  |  {ram_gb}GB RAM"
+
+
 # ── Voice input ───────────────────────────────────────────────────────────────
 
 _voice_queue: list[str] = []
@@ -122,6 +150,10 @@ async def main():
     os.system("clear")
     print(BANNER)
 
+    # Hardware summary — show what was detected
+    hw = detect_hardware()
+    print(f"\033[0;90m  Detected: {hw}\033[0m\n")
+
     # If daemon isn't up yet, offer quick setup
     if not ai_online():
         setup_api_key()
@@ -164,11 +196,14 @@ async def main():
                      ["/opt/archspeech/bin/python3", "/usr/local/bin/archspeech-installer"])
 
         if ai_online():
-            print("\033[1;36m  AI:\033[0m ", end="", flush=True)
+            # Show thinking indicator immediately so user knows AI received it
+            print("\033[1;36m  AI:\033[0;90m thinking...\033[0m", end="\r", flush=True)
             response = await ask_ai(user_input)
             if response:
-                print(f"\033[0;37m{response}\033[0m\n")
+                print(f"\033[1;36m  AI:\033[0m \033[0;37m{response}\033[0m\n")
                 speak(response)
+            else:
+                print(f"\033[1;36m  AI:\033[0;33m No response — model may still be loading, try again.\033[0m\n")
         else:
             print("\033[0;33m  AI offline — type 'setup' to connect a provider\033[0m\n")
             if user_input.lower() == "setup":

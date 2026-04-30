@@ -33,10 +33,11 @@ echo ""
 export PULSE_SERVER="unix:$PULSE_SOCK"
 
 LOG="$PROJECT/aios-boot.log"
+# Always start fresh — clear previous boot log so it only contains latest session
+> "$LOG"
 echo "  Serial: all kernel + systemd output → this terminal AND $LOG"
 echo ""
 
-# Tee serial output to both terminal and log file so it can be shared for analysis
 qemu-system-x86_64 \
     -enable-kvm \
     -m 4G \
