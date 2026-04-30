@@ -54,17 +54,20 @@ def create_model_with_progress():
     gguf_size = Path(GGUF_PATH).stat().st_size
     write_status(f"Found GGUF: {GGUF_PATH} ({gguf_size // 1024 // 1024}MB)")
 
-    modelfile_content = Path(MODELFILE).read_text() if Path(MODELFILE).exists() else f"FROM {GGUF_PATH}"
-    write_status(f"Using Modelfile: {MODELFILE}")
-    write_status(f"Modelfile content preview: {modelfile_content[:100]}")
-
+    # Ollama 0.18.0+ uses 'from' + structured params, NOT the old 'modelfile' field
+    write_status(f"Creating model '{MODEL_NAME}' from {GGUF_PATH}")
     payload = json.dumps({
-        "name": MODEL_NAME,
-        "modelfile": modelfile_content
+        "model":  MODEL_NAME,
+        "from":   GGUF_PATH,
+        "system": "You are AIos, the AI core of an Arch-based Linux system. Help users manage their system through voice or text commands. Be concise — responses may be spoken aloud.",
+        "parameters": {
+            "num_ctx":     4096,
+            "temperature": 0.7
+        }
     }).encode()
 
-    write_status(f"POSTing to {OLLAMA_URL}/api/create — this reads {gguf_size // 1024 // 1024}MB from USB...")
-    write_status("This may take 1-3 minutes depending on USB speed. Watch the progress below:")
+    write_status(f"POSTing to {OLLAMA_URL}/api/create (Ollama 0.18+ format)...")
+    write_status(f"Reading {gguf_size // 1024 // 1024}MB from USB — may take 1-3 minutes:")
 
     try:
         req = urllib.request.Request(
