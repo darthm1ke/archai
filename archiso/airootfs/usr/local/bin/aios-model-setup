@@ -119,7 +119,8 @@ def create_model(sha256: str) -> bool:
         "system": "You are AIos, the AI core of an Arch-based Linux system. Help users manage their system through voice or text. Be concise.",
         "parameters": {
             "num_ctx":     4096,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "think":       False    # Disable Qwen3 chain-of-thought — prevents 15min reasoning loops
         }
     }).encode()
 
