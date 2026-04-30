@@ -248,20 +248,36 @@ async def handle_openai_compatible(user_message: str, config: dict) -> str:
 
 # ── Local TinyLlama backend ───────────────────────────────────────────────────
 
+def ensure_ollama_model(model: str = "tinyllama") -> bool:
+    """Pull the model if Ollama is running but doesn't have it yet."""
+    try:
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        if model in result.stdout:
+            return True
+        log.info(f"Pulling {model} via Ollama (first boot download)...")
+        subprocess.run(["ollama", "pull", model], timeout=300)
+        log.info(f"{model} ready.")
+        return True
+    except Exception as e:
+        log.error(f"Ollama model setup failed: {e}")
+        return False
+
+
 async def handle_local(user_message: str) -> str:
-    """Use Ollama's local TinyLlama via its OpenAI-compatible API."""
+    """Use Ollama's local TinyLlama. Auto-pulls on first boot if not present."""
+    ensure_ollama_model("tinyllama")
     ollama_config = {
         "provider":      "openai_compatible",
         "api_key":       "ollama",
         "api_url":       "http://localhost:11434/v1",
         "model":         "tinyllama",
-        "tools_enabled": False  # TinyLlama doesn't support tool calling
+        "tools_enabled": False
     }
     try:
         return await handle_openai_compatible(user_message, ollama_config)
     except Exception as e:
         log.error(f"Ollama unavailable: {e}")
-        return "Local AI unavailable. Connect a cloud provider: type 'setup' in the terminal."
+        return "Local AI is setting up — this takes about a minute on first boot. Try again shortly."
 
 
 # ── Router ────────────────────────────────────────────────────────────────────

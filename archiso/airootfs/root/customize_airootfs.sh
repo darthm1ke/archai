@@ -17,19 +17,8 @@ fi
 # No llama-cpp-python — Ollama handles local inference with automatic
 # GPU detection (CUDA, ROCm, CPU). Pre-compiled, no chroot build issues.
 
-# ── Ollama model pre-pull ─────────────────────────────────────────────────────
-# Pull TinyLlama so it's available offline on first boot.
-# Ollama stores models in /usr/share/ollama/.ollama/models/
-mkdir -p /usr/share/ollama/.ollama/models
-export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
-
-# Start ollama in background, pull the model, then stop it
-ollama serve &
-OLLAMA_PID=$!
-sleep 3
-ollama pull tinyllama && echo "TinyLlama pulled successfully" || echo "TinyLlama pull failed — will download on first run"
-kill $OLLAMA_PID 2>/dev/null || true
-wait $OLLAMA_PID 2>/dev/null || true
+# TinyLlama is pulled on first boot by the daemon (ensure_ollama_model).
+# Chroot has no network access so pulling here always fails silently.
 
 # ── Enable core services ──────────────────────────────────────────────────────
 systemctl enable ollama.service

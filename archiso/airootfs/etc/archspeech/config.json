@@ -1,0 +1,10 @@
+{
+  "provider": "local",
+  "api_url": "http://localhost:11434/v1",
+  "api_key": "ollama",
+  "model": "tinyllama",
+  "fallback": "local",
+  "voice_enabled": true,
+  "wake_word": "archai",
+  "log_commands": true
+}

@@ -7,8 +7,7 @@ pkg-cache/
 archiso/airootfs/usr/local/lib/archspeech/models/*.gguf
 archiso/airootfs/usr/local/lib/archspeech/wheels/
 
-# Secrets
-archiso/airootfs/etc/archspeech/config.json
+# Secrets (only ignore if it contains real API keys — default config is safe to commit)
 
 # Test VM disk
 archai-test.qcow2
