@@ -40,12 +40,13 @@ htop
 man-db
 man-pages
 
-# --- Local AI inference ---
+# --- Local AI inference (GPU-accelerated on AMD, Intel, NVIDIA) ---
 ollama-vulkan
-# Vulkan ICD loader + Intel driver only (user has Intel iGPU)
-# nvidia-utils and vulkan-radeon removed — caused boot hang on Intel-only hardware
 vulkan-icd-loader
 vulkan-intel
+intel-compute-runtime
+vulkan-radeon
+nvidia-utils
 
 # --- Python (AI daemon runtime) ---
 python
