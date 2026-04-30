@@ -42,6 +42,10 @@ echo ""
 
 sudo mkarchiso -v -w "$WORK" -o "$OUT" "$PROFILE"
 
+# ── Clean old ISOs — keep only the latest ────────────────────────────────────
+LATEST=$(find "$OUT" -name "aios-*.iso" | sort -t- -k2 -V | tail -1)
+find "$OUT" -name "*.iso" ! -path "$LATEST" -delete 2>/dev/null || true
+
 # ── Report ────────────────────────────────────────────────────────────────────
 ISO=$(find "$OUT" -name "aios-*.iso" | sort -t- -k2 -V | tail -1)
 if [ -f "$ISO" ]; then
