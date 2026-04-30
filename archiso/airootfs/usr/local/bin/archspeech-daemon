@@ -289,7 +289,7 @@ def load_cheatsheet(message: str) -> str:
     return context
 
 
-def ensure_ollama_model(model: str = "qwen2.5:0.5b") -> bool:
+def ensure_ollama_model(model: str = "qwen3:0.6b") -> bool:
     """Pull the model if Ollama is running but doesn't have it yet."""
     try:
         result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
@@ -306,7 +306,7 @@ def ensure_ollama_model(model: str = "qwen2.5:0.5b") -> bool:
 
 async def handle_local(user_message: str) -> str:
     """Use Ollama's local qwen2.5:0.5b with cheat sheet context injection."""
-    ensure_ollama_model("qwen2.5:0.5b")
+    ensure_ollama_model("qwen3:0.6b")
     # Inject relevant cheat sheet so the small model has accurate Arch context
     context = load_cheatsheet(user_message)
     augmented_message = user_message + context
@@ -314,7 +314,7 @@ async def handle_local(user_message: str) -> str:
         "provider":      "openai_compatible",
         "api_key":       "ollama",
         "api_url":       "http://localhost:11434/v1",
-        "model":         "qwen2.5:0.5b",
+        "model":         "qwen3:0.6b",
         "tools_enabled": False
     }
     try:

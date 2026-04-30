@@ -2,7 +2,7 @@
 Description=AIos - Import TinyLlama into Ollama on first boot
 After=ollama.service network.target
 Requires=ollama.service
-ConditionPathExists=/usr/local/lib/archspeech/models/qwen2.5-0.5b.gguf
+ConditionPathExists=/usr/local/lib/archspeech/models/qwen3-0.6b.gguf
 ConditionPathExists=!/var/lib/aios/.model_ready
 
 [Service]
