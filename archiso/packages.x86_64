@@ -40,13 +40,14 @@ htop
 man-db
 man-pages
 
-# --- Local AI inference (GPU-accelerated on AMD, Intel, NVIDIA) ---
+# --- Local AI inference (GPU-accelerated via Vulkan) ---
 ollama-vulkan
 vulkan-icd-loader
+# Vulkan ICDs — pure libraries, no udev rules, safe on any hardware
 vulkan-intel
-intel-compute-runtime
 vulkan-radeon
-nvidia-utils
+# intel-compute-runtime and nvidia-utils removed — install udev rules that
+# hang boot when hardware isn't fully initialized in the live environment
 
 # --- Python (AI daemon runtime) ---
 python
