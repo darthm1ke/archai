@@ -24,13 +24,18 @@ fi
 systemctl enable ollama.service 2>/dev/null || systemctl enable ollama-vulkan.service 2>/dev/null || true
 systemctl enable aios-model-init.service
 systemctl enable archspeech.service
-systemctl enable archspeech-voice.service
+# archspeech-voice.service disabled — uses piper/whisper-cli which aren't installed
+# Voice is handled by archspeech-ptt (evdev + espeak-ng)
+# systemctl enable archspeech-voice.service
 systemctl enable archspeech-ptt.service
 systemctl enable keyd.service
 systemctl enable NetworkManager.service
 
 # ── File permissions ──────────────────────────────────────────────────────────
 chmod 440 /etc/sudoers.d/archspeech
+# Make GGUF readable by the ollama system user
+chmod 644 /usr/local/lib/archspeech/models/qwen3-0.6b.gguf 2>/dev/null || true
+chmod 755 /usr/local/lib/archspeech/models/ 2>/dev/null || true
 chmod +x /usr/local/lib/archspeech/installer/profiles/*.sh
 chmod +x /usr/local/lib/archspeech/installer/log.sh
 

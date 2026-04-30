@@ -92,8 +92,12 @@ def create_model_with_progress():
                 except Exception:
                     pass
         return True
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else "no body"
+        write_status(f"ERROR HTTP {e.code}: {e.reason} — {body}")
+        return False
     except Exception as e:
-        write_status(f"ERROR during import: {e}")
+        write_status(f"ERROR during import: {type(e).__name__}: {e}")
         return False
 
 def main():
