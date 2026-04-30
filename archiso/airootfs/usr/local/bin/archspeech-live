@@ -162,10 +162,7 @@ async def main():
     if ai_online():
         print(f"\033[1;36m  AI:\033[0m ", end="", flush=True)
         greeting = await ask_ai(
-            "You are AIos, an AI-native Linux system running live from a USB drive. "
-            "Greet the user in one sentence. Tell them you can manage their system, "
-            "install software, configure things, or install to disk if they want. "
-            "Be direct. No farewells."
+            "You are AIos. Greet the user in one short sentence. Say you can manage their system, install software, or install to disk."
         )
         if greeting:
             print(f"\033[0;37m{greeting}\033[0m")

@@ -42,6 +42,12 @@ man-pages
 
 # --- Local AI inference (Vulkan = GPU-accelerated on AMD, Intel, NVIDIA) ---
 ollama-vulkan
+# GPU drivers — required for Ollama Vulkan to actually use the GPU
+vulkan-icd-loader
+vulkan-intel
+intel-compute-runtime
+vulkan-radeon
+nvidia-utils
 
 # --- Python (AI daemon runtime) ---
 python
