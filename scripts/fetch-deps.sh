@@ -27,7 +27,7 @@ if [ -f "$MODEL" ]; then
 else
     echo "▶ Downloading Qwen3 0.6B Q4_K_M (~400MB)..."
     curl -L --progress-bar \
-        "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf" \
+        "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf" \
         -o "$MODEL"
     echo "✓ Qwen3 0.6B downloaded"
 fi
