@@ -22,6 +22,7 @@ fi
 
 # ── Enable core services ──────────────────────────────────────────────────────
 systemctl enable ollama.service
+systemctl enable aios-model-init.service
 systemctl enable archspeech.service
 systemctl enable archspeech-voice.service
 systemctl enable archspeech-ptt.service

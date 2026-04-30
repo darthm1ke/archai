@@ -20,7 +20,7 @@ BANNER = """
 \033[1;36m██║  ██║██║  ██║╚██████╗██║  ██║    ██║  ██║██║\033[0m
 \033[1;36m╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝\033[0m
 \033[0;90m ──────────────────────────────────────────────────────────\033[0m
-\033[0;37m  AI-native Linux  \033[0;90m|\033[0;37m  Running live from USB — nothing installed yet\033[0m
+\033[0;37m  AIos - AI-native Linux, powered by Arch  \033[0;90m|\033[0;37m  Live from USB\033[0m
 \033[0;90m ──────────────────────────────────────────────────────────\033[0m
 \033[0;37m  Hold \033[1;36mCaps Lock\033[0;37m to speak  \033[0;90m|\033[0;37m  \033[1;36mRight Ctrl\033[0;37m in a VM  \033[0;90m|\033[0;37m  Type + \033[1;36mEnter\033[0m
 \033[0;90m ──────────────────────────────────────────────────────────\033[0m
@@ -130,7 +130,7 @@ async def main():
     if ai_online():
         print(f"\033[1;36m  AI:\033[0m ", end="", flush=True)
         greeting = await ask_ai(
-            "You are ArchAI, running live from a USB drive. "
+            "You are AIos, an AI-native Linux system running live from a USB drive. "
             "Greet the user in one sentence. Tell them you can manage their system, "
             "install software, configure things, or install to disk if they want. "
             "Be direct. No farewells."

@@ -1,0 +1,17 @@
+[Unit]
+Description=AIos - Import TinyLlama into Ollama on first boot
+After=ollama.service network.target
+Requires=ollama.service
+ConditionPathExists=/usr/local/lib/archspeech/models/tinyllama.gguf
+ConditionPathExists=!/var/lib/aios/.model_ready
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 2
+ExecStart=/bin/bash -c 'ollama create tinyllama -f /etc/archspeech/Modelfile && mkdir -p /var/lib/aios && touch /var/lib/aios/.model_ready'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,13 +1,6 @@
 
-  ArchSpeech Linux — AI-native OS
+  AIos — AI-native Linux, powered by Arch
   ─────────────────────────────────────────────────────
-  Voice command:  Say "archspeech" followed by your request
-  Text command:   archspeech-cli "your command here"
-
-  The AI layer is connected to Claude and can manage packages,
-  services, web servers, SSL, files, and more — just ask.
-  ─────────────────────────────────────────────────────
-  For installation: archinstall
-  For Wi-Fi:        iwctl
+  Hold [Caps Lock] to speak  |  Type and press [Enter]
   ─────────────────────────────────────────────────────
 

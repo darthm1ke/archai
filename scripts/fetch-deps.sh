@@ -16,9 +16,19 @@ echo "  ArchAI — one-time dependency fetch"
 echo "══════════════════════════════════════════"
 echo ""
 
-# TinyLlama is now managed by Ollama — pulled during ISO build via `ollama pull tinyllama`
-# No manual GGUF download needed.
-echo "✓ TinyLlama handled by Ollama at build time (ollama pull tinyllama)"
+# ── TinyLlama 1.1B Q4_K_M (~640MB) ──────────────────────────────────────────
+# Downloaded as GGUF and baked into the ISO. Ollama imports it on first boot
+# via aios-model-init.service — no internet needed after that.
+MODEL="$MODELS_DIR/tinyllama.gguf"
+if [ -f "$MODEL" ]; then
+    echo "✓ TinyLlama already downloaded ($(du -sh "$MODEL" | cut -f1))"
+else
+    echo "▶ Downloading TinyLlama 1.1B Q4_K_M (~640MB)..."
+    curl -L --progress-bar \
+        "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" \
+        -o "$MODEL"
+    echo "✓ TinyLlama downloaded"
+fi
 
 # ── pip wheels (pure-Python packages only, cached as wheels) ─────────────────
 echo ""

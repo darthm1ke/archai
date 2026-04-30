@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-iso_name="archspeech"
-iso_label="ARCHSPEECH_$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y%m)"
-iso_publisher="ArchSpeech Project"
-iso_application="ArchSpeech — AI-native Linux"
+iso_name="aios"
+iso_label="AIOS_$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y%m)"
+iso_publisher="AIos Project"
+iso_application="AIos - AI-native Linux powered by Arch"
 iso_version="0.1.0"
 install_dir="arch"
 buildmodes=('iso')

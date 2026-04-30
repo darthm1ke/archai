@@ -1,9 +1,8 @@
-NAME="ArchSpeech"
-PRETTY_NAME="ArchSpeech Linux"
-ID=archspeech
+NAME="AIos"
+PRETTY_NAME="AIos Linux (powered by Arch)"
+ID=aios
 ID_LIKE=arch
 BUILD_ID=rolling
-ANSI_COLOR="38;2;23;147;209"
-HOME_URL="https://github.com/archspeech"
-DOCUMENTATION_URL="https://github.com/archspeech/wiki"
-LOGO=archspeech
+ANSI_COLOR="38;2;0;200;255"
+HOME_URL="https://github.com/darthm1ke/archai"
+LOGO=aios
