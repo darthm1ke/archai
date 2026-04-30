@@ -21,6 +21,7 @@ file_permissions=(
   ["/usr/local/bin/archspeech-cli"]="0:0:755"
   ["/usr/local/bin/archspeech-setup"]="0:0:755"
   ["/usr/local/bin/archspeech-live"]="0:0:755"
+  ["/usr/local/bin/aios-status"]="0:0:755"
   ["/usr/local/bin/archspeech-ptt"]="0:0:755"
   ["/usr/local/bin/archspeech-ui"]="0:0:755"
   ["/usr/local/bin/archspeech-installer"]="0:0:755"

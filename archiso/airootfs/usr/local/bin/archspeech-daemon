@@ -306,7 +306,7 @@ def ensure_ollama_model(model: str = "qwen3:0.6b") -> bool:
 
 async def handle_local(user_message: str) -> str:
     """Use Ollama's local qwen2.5:0.5b with cheat sheet context injection."""
-    ensure_ollama_model("qwen3:0.6b")
+    ensure_ollama_model("aios-local")
     # Inject relevant cheat sheet so the small model has accurate Arch context
     context = load_cheatsheet(user_message)
     augmented_message = user_message + context
@@ -314,7 +314,7 @@ async def handle_local(user_message: str) -> str:
         "provider":      "openai_compatible",
         "api_key":       "ollama",
         "api_url":       "http://localhost:11434/v1",
-        "model":         "qwen3:0.6b",
+        "model":         "aios-local",
         "tools_enabled": False
     }
     try:

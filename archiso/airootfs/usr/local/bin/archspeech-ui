@@ -1,45 +1,26 @@
 #!/usr/bin/env bash
-# AIos UI — tmux with AI terminal (top) and live status pane (bottom)
+# AIos UI — tmux with AI terminal (top) and status pane (bottom)
 
 SESSION="aios"
-LOG="/var/log/archspeech/execution.log"
-mkdir -p "$(dirname "$LOG")" && touch "$LOG"
 
 tmux kill-session -t "$SESSION" 2>/dev/null
-
 tmux new-session -d -s "$SESSION" -x "$(tput cols)" -y "$(tput lines)"
 tmux set-option -t "$SESSION" allow-rename off
 tmux set-option -t "$SESSION" status on
-tmux set-option -t "$SESSION" status-style          "bg=colour235,fg=colour39"
-tmux set-option -t "$SESSION" status-left           " #[bold,fg=colour39]AI#[fg=colour255]os#[nobold]  "
-tmux set-option -t "$SESSION" status-right          " #[fg=colour245]Hold [Caps Lock] to speak  |  Right Ctrl in VM "
-tmux set-option -t "$SESSION" pane-border-style     "fg=colour238"
+tmux set-option -t "$SESSION" status-style         "bg=colour235,fg=colour39"
+tmux set-option -t "$SESSION" status-left          " #[bold,fg=colour39]AI#[fg=colour255]os#[nobold]  "
+tmux set-option -t "$SESSION" status-right         " #[fg=colour245]Hold [Caps Lock] to speak  |  Right Ctrl in VM "
+tmux set-option -t "$SESSION" pane-border-style    "fg=colour238"
 tmux set-option -t "$SESSION" pane-active-border-style "fg=colour39"
 
-# Split: 75% top (AI terminal) / 25% bottom (live status)
+# Split 75/25
 tmux split-window -t "$SESSION" -v -p 25
 
-# Bottom pane — live status showing model loading + service activity
-tmux send-keys -t "$SESSION:0.1" "
-printf '\033[0;90m  ── AIos Status ──────────────────────────────────────────────────────\033[0m\n'
-# Show model status until ready, then switch to live log
-while true; do
-    if systemctl is-active --quiet aios-model-init.service 2>/dev/null; then
-        STATUS=\"\$(journalctl -u aios-model-init.service -n 3 --no-pager -o cat 2>/dev/null)\"
-        printf '\r\033[0;36m  Model: \033[0;33m%s\033[0m' \"\$STATUS\"
-    elif [ -f /var/lib/aios/.model_ready ]; then
-        printf '\n\033[0;32m  Model: Qwen3 0.6B ready\033[0m\n'
-        break
-    else
-        printf '\r\033[0;33m  Model: loading...\033[0m'
-    fi
-    sleep 2
-done
-tail -f $LOG 2>/dev/null || sleep infinity
-" Enter
+# Bottom pane — proper script file, no inline code
+tmux send-keys -t "$SESSION:0.1" "/usr/local/bin/aios-status" Enter
 
-# Top pane — AI live terminal
+# Top pane — AI terminal
 tmux select-pane -t "$SESSION:0.0"
-tmux send-keys -t "$SESSION:0.0" "exec /usr/local/bin/archspeech-live" Enter
+tmux send-keys -t "$SESSION:0.0" "/usr/local/bin/archspeech-live" Enter
 
 tmux attach-session -t "$SESSION"

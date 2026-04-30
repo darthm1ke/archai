@@ -2,7 +2,7 @@
   "provider": "local",
   "api_url": "http://localhost:11434/v1",
   "api_key": "ollama",
-  "model": "qwen3:0.6b",
+  "model": "aios-local",
   "fallback": "local",
   "voice_enabled": true,
   "wake_word": "aios",

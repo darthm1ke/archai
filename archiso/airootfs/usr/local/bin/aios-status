@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# AIos status pane — shows model loading progress then live execution log
+
+LOG="/var/log/archspeech/execution.log"
+touch "$LOG" 2>/dev/null
+
+printf '\033[0;90m  ── AIos Status ─────────────────────────────────────────────\033[0m\n'
+
+# Phase 1: wait for Ollama API
+printf '\033[0;33m  Waiting for Ollama...\033[0m'
+until curl -sf http://localhost:11434/api/version > /dev/null 2>&1; do
+    printf '.'
+    sleep 1
+done
+printf '\n\033[0;32m  ✓ Ollama ready\033[0m\n'
+
+# Phase 2: watch model import with progress
+if [ ! -f /var/lib/aios/.model_ready ]; then
+    printf '\033[0;33m  Importing Qwen3 0.6B into Ollama\033[0m'
+    dots=0
+    while [ ! -f /var/lib/aios/.model_ready ]; do
+        printf '.'
+        dots=$((dots+1))
+        # Show spinner every 10 dots
+        if [ $((dots % 30)) -eq 0 ]; then
+            printf '\n\033[0;90m  %s\033[0m' \
+                "$(journalctl -u aios-model-init.service -n 1 --no-pager -o cat 2>/dev/null)"
+            printf '\n\033[0;33m  Still importing\033[0m'
+        fi
+        sleep 1
+        # Timeout after 3 minutes
+        [ $dots -gt 180 ] && printf '\n\033[0;31m  Import timed out — try rebooting\033[0m\n' && break
+    done
+    printf '\n\033[0;32m  ✓ Model ready — AI is fully loaded\033[0m\n\n'
+fi
+
+# Phase 3: live execution log
+printf '\033[0;90m  ── Live activity log ───────────────────────────────────────\033[0m\n'
+tail -f "$LOG" 2>/dev/null
