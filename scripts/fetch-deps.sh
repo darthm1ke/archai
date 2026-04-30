@@ -19,15 +19,16 @@ echo ""
 # ── TinyLlama 1.1B Q4_K_M (~640MB) ──────────────────────────────────────────
 # Downloaded as GGUF and baked into the ISO. Ollama imports it on first boot
 # via aios-model-init.service — no internet needed after that.
-MODEL="$MODELS_DIR/tinyllama.gguf"
+# Qwen2.5 0.5B Q4_K_M — ~397MB, smaller and better than TinyLlama 1.1B
+MODEL="$MODELS_DIR/qwen2.5-0.5b.gguf"
 if [ -f "$MODEL" ]; then
-    echo "✓ TinyLlama already downloaded ($(du -sh "$MODEL" | cut -f1))"
+    echo "✓ Qwen2.5 0.5B already downloaded ($(du -sh "$MODEL" | cut -f1))"
 else
-    echo "▶ Downloading TinyLlama 1.1B Q4_K_M (~640MB)..."
+    echo "▶ Downloading Qwen2.5 0.5B Q4_K_M (~397MB)..."
     curl -L --progress-bar \
-        "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" \
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
         -o "$MODEL"
-    echo "✓ TinyLlama downloaded"
+    echo "✓ Qwen2.5 0.5B downloaded"
 fi
 
 # ── pip wheels (pure-Python packages only, cached as wheels) ─────────────────

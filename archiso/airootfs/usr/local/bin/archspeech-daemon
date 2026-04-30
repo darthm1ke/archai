@@ -248,7 +248,48 @@ async def handle_openai_compatible(user_message: str, config: dict) -> str:
 
 # ── Local TinyLlama backend ───────────────────────────────────────────────────
 
-def ensure_ollama_model(model: str = "tinyllama") -> bool:
+CHEATSHEET_DIR = Path("/etc/archspeech/cheatsheets")
+CHEATSHEET_MAP = {
+    "pentest": ["pentest.md", "networking.md"],
+    "hack":    ["pentest.md", "networking.md"],
+    "nmap":    ["pentest.md"],
+    "scan":    ["pentest.md"],
+    "install": ["install.md"],
+    "disk":    ["install.md"],
+    "parted":  ["install.md"],
+    "pacman":  ["packages.md"],
+    "package": ["packages.md"],
+    "yay":     ["packages.md"],
+    "service": ["services.md"],
+    "systemctl": ["services.md"],
+    "nginx":   ["webserver.md"],
+    "apache":  ["webserver.md"],
+    "ssl":     ["webserver.md"],
+    "certbot": ["webserver.md"],
+    "wifi":    ["networking.md"],
+    "network": ["networking.md"],
+    "vpn":     ["networking.md"],
+}
+
+
+def load_cheatsheet(message: str) -> str:
+    """Return relevant cheat sheet content based on keywords in the message."""
+    ml = message.lower()
+    sheets_to_load = set()
+    for keyword, files in CHEATSHEET_MAP.items():
+        if keyword in ml:
+            sheets_to_load.update(files)
+    if not sheets_to_load:
+        return ""
+    context = "\n\n=== REFERENCE ===\n"
+    for fname in sheets_to_load:
+        path = CHEATSHEET_DIR / fname
+        if path.exists():
+            context += path.read_text() + "\n"
+    return context
+
+
+def ensure_ollama_model(model: str = "qwen2.5:0.5b") -> bool:
     """Pull the model if Ollama is running but doesn't have it yet."""
     try:
         result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
@@ -264,17 +305,20 @@ def ensure_ollama_model(model: str = "tinyllama") -> bool:
 
 
 async def handle_local(user_message: str) -> str:
-    """Use Ollama's local TinyLlama. Auto-pulls on first boot if not present."""
-    ensure_ollama_model("tinyllama")
+    """Use Ollama's local qwen2.5:0.5b with cheat sheet context injection."""
+    ensure_ollama_model("qwen2.5:0.5b")
+    # Inject relevant cheat sheet so the small model has accurate Arch context
+    context = load_cheatsheet(user_message)
+    augmented_message = user_message + context
     ollama_config = {
         "provider":      "openai_compatible",
         "api_key":       "ollama",
         "api_url":       "http://localhost:11434/v1",
-        "model":         "tinyllama",
+        "model":         "qwen2.5:0.5b",
         "tools_enabled": False
     }
     try:
-        return await handle_openai_compatible(user_message, ollama_config)
+        return await handle_openai_compatible(augmented_message, ollama_config)
     except Exception as e:
         log.error(f"Ollama unavailable: {e}")
         return "Local AI is setting up — this takes about a minute on first boot. Try again shortly."
