@@ -1,42 +1,26 @@
 #!/usr/bin/env bash
-# AIos status pane — reads real progress from model setup script
+# AIos POC status pane — shows EVERYTHING from every relevant service live
 
-LOG="/var/log/archspeech/execution.log"
-STATUS_FILE="/var/lib/aios/model_status"
-READY_FLAG="/var/lib/aios/.model_ready"
+printf '\033[0;90m══════════════════════════════════════════════════════════════\033[0m\n'
+printf '\033[1;36m  AIos Live System Log\033[0m\n'
+printf '\033[0;90m  Showing: kernel · ollama · model-init · ai-daemon · ptt\033[0m\n'
+printf '\033[0;90m══════════════════════════════════════════════════════════════\033[0m\n'
 
-touch "$LOG" 2>/dev/null
+# Wait briefly for journal to be available
+sleep 2
 
-printf '\033[0;90m  ── AIos Status ─────────────────────────────────────────────\033[0m\n'
-
-# Show live model import progress by tailing the status file
-if [ ! -f "$READY_FLAG" ]; then
-    printf '\033[0;33m  Model import starting...\033[0m\n'
-    last_status=""
-    while [ ! -f "$READY_FLAG" ]; do
-        if [ -f "$STATUS_FILE" ]; then
-            current="$(cat "$STATUS_FILE" 2>/dev/null)"
-            if [ "$current" != "$last_status" ]; then
-                # Color based on content
-                if echo "$current" | grep -q "ERROR\|FAILED"; then
-                    printf '\r\033[0;31m  %s\033[0m\n' "$current"
-                elif echo "$current" | grep -q "READY"; then
-                    printf '\r\033[0;32m  ✓ %s\033[0m\n' "$current"
-                    break
-                else
-                    printf '\r\033[0;33m  %s\033[0m\033[K' "$current"
-                fi
-                last_status="$current"
-            fi
-        fi
-        sleep 1
-    done
-
-    if [ -f "$READY_FLAG" ]; then
-        printf '\n\033[0;32m  ✓ AI model fully loaded — ready\033[0m\n\n'
-    fi
-fi
-
-# Live execution log
-printf '\033[0;90m  ── Live activity ────────────────────────────────────────────\033[0m\n'
-tail -f "$LOG" 2>/dev/null || sleep infinity
+# Stream everything from all AIos-related services + kernel in real time
+# -f = follow, -n 30 = show last 30 lines first, -p = priority
+exec journalctl -f \
+    -n 30 \
+    -u ollama.service \
+    -u ollama-vulkan.service \
+    -u aios-model-init.service \
+    -u archspeech.service \
+    -u archspeech-ptt.service \
+    -u archspeech-voice.service \
+    -u NetworkManager.service \
+    --no-hostname \
+    --output=short-monotonic \
+    2>/dev/null || \
+journalctl -f -n 30 --no-hostname --output=short-monotonic
