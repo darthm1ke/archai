@@ -12,7 +12,17 @@ LOCALE="${4:-en_US.UTF-8}"
 BASE_PACKAGES="base base-devel linux618 linux618-headers linux-firmware networkmanager sudo git vim zsh"
 DESKTOP_PACKAGES="plasma-meta sddm konsole dolphin firefox"
 GAMING_PACKAGES="steam lutris wine wine-mono gamemode lib32-gamemode discord"
-DRIVER_PACKAGES="mesa vulkan-icd-loader lib32-mesa lib32-vulkan-icd-loader"
+# Auto-detect GPU and install appropriate driver
+if lspci | grep -qi nvidia; then
+    DRIVER_PACKAGES="nvidia-dkms nvidia-utils lib32-nvidia-utils vulkan-icd-loader"
+    log_info "NVIDIA GPU detected — installing proprietary driver"
+elif lspci | grep -qi "amd\|radeon"; then
+    DRIVER_PACKAGES="mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon"
+    log_info "AMD GPU detected — installing Mesa/RADV"
+else
+    DRIVER_PACKAGES="mesa vulkan-intel lib32-mesa"
+    log_info "Intel GPU detected — installing Mesa"
+fi
 ARCHAI_PACKAGES="python python-pip espeak-ng tmux keyd alsa-utils pipewire pipewire-pulse wireplumber"
 
 log_info "Gaming profile selected — KDE + Steam + Proton + GameMode"
