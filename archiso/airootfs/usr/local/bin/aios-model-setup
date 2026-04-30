@@ -1,130 +1,203 @@
 #!/opt/archspeech/bin/python3
 """
-AIos model setup — imports Qwen3 0.6B into Ollama via streaming API.
-Writes progress to /var/lib/aios/model_status for the status pane to read.
+AIos model setup — Ollama 0.18+ blob upload API.
+Step 1: upload GGUF as a blob via /api/blobs/sha256:<hash>
+Step 2: create model referencing that blob via /api/create with 'files'
 """
-import json, time, subprocess, sys, os
-from pathlib import Path
+import json, time, hashlib, os, datetime
 import urllib.request, urllib.error
+from pathlib import Path
 
 STATUS_FILE = Path("/var/lib/aios/model_status")
 READY_FLAG  = Path("/var/lib/aios/.model_ready")
 GGUF_PATH   = "/usr/local/lib/archspeech/models/qwen3-0.6b.gguf"
 MODEL_NAME  = "aios-local"
-MODELFILE   = "/etc/archspeech/Modelfile"
 OLLAMA_URL  = "http://localhost:11434"
+CHUNK_SIZE  = 1024 * 1024  # 1MB chunks
+
 
 def write_status(msg: str):
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATUS_FILE.write_text(msg)
-    # Print with timestamp to journal (visible in status pane)
-    import datetime
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"[aios-model-setup {ts}] {msg}", flush=True)
 
-def wait_for_ollama(timeout=120):
+
+def compute_sha256(filepath: str) -> str:
+    write_status(f"Computing SHA256 of GGUF ({Path(filepath).stat().st_size // 1024 // 1024}MB)...")
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    write_status(f"SHA256: {digest[:16]}...")
+    return digest
+
+
+def wait_for_ollama(timeout=120) -> bool:
     write_status(f"Waiting for Ollama API at {OLLAMA_URL}...")
     for i in range(timeout):
         try:
             resp = urllib.request.urlopen(f"{OLLAMA_URL}/api/version", timeout=2)
-            version = json.loads(resp.read()).get("version", "unknown")
-            write_status(f"Ollama {version} is running and ready")
+            version = json.loads(resp.read()).get("version", "?")
+            write_status(f"Ollama {version} ready")
             return True
         except Exception as e:
             if i % 10 == 0:
-                write_status(f"Still waiting for Ollama... ({i}s elapsed, {e})")
+                write_status(f"Still waiting... ({i}s, {e})")
             time.sleep(1)
-    write_status("ERROR: Ollama API did not respond after 120s")
+    write_status("ERROR: Ollama API timeout after 120s")
     return False
 
-def model_exists() -> bool:
+
+def blob_exists(sha256: str) -> bool:
     try:
-        req = urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=5)
-        data = json.loads(req.read())
-        return any(m.get("name","").startswith(MODEL_NAME) for m in data.get("models", []))
+        urllib.request.urlopen(
+            urllib.request.Request(f"{OLLAMA_URL}/api/blobs/sha256:{sha256}", method="HEAD"),
+            timeout=5
+        )
+        return True
     except Exception:
         return False
 
-def create_model_with_progress():
-    if not Path(GGUF_PATH).exists():
-        write_status(f"ERROR: GGUF not found at {GGUF_PATH}")
-        write_status(f"Files in model dir: {list(Path(GGUF_PATH).parent.iterdir()) if Path(GGUF_PATH).parent.exists() else 'directory missing'}")
+
+def upload_blob(filepath: str, sha256: str) -> bool:
+    """Upload GGUF to Ollama blob store in chunks with progress."""
+    file_size = os.path.getsize(filepath)
+    write_status(f"Uploading GGUF blob ({file_size // 1024 // 1024}MB) to Ollama...")
+
+    class ProgressReader:
+        def __init__(self):
+            self.f = open(filepath, "rb")
+            self.sent = 0
+        def read(self, size=-1):
+            data = self.f.read(CHUNK_SIZE if size < 0 else size)
+            self.sent += len(data)
+            pct = int(self.sent / file_size * 100)
+            bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+            write_status(f"Uploading: [{bar}] {pct}% ({self.sent // 1024 // 1024}/{file_size // 1024 // 1024}MB)")
+            return data
+        def __len__(self):
+            return file_size
+
+    reader = ProgressReader()
+    req = urllib.request.Request(
+        f"{OLLAMA_URL}/api/blobs/sha256:{sha256}",
+        data=reader,
+        method="POST",
+        headers={
+            "Content-Type":   "application/octet-stream",
+            "Content-Length": str(file_size),
+            "Expect":         ""
+        }
+    )
+    try:
+        urllib.request.urlopen(req, timeout=600)
+        write_status("Blob upload complete")
+        return True
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        write_status(f"Blob upload HTTP {e.code}: {body}")
+        return False
+    except Exception as e:
+        write_status(f"Blob upload error: {e}")
         return False
 
-    gguf_size = Path(GGUF_PATH).stat().st_size
-    write_status(f"Found GGUF: {GGUF_PATH} ({gguf_size // 1024 // 1024}MB)")
 
-    # Ollama 0.18.0+ uses 'from' + structured params, NOT the old 'modelfile' field
-    write_status(f"Creating model '{MODEL_NAME}' from {GGUF_PATH}")
+def create_model(sha256: str) -> bool:
+    """Create Ollama model referencing the uploaded blob."""
+    write_status(f"Creating model '{MODEL_NAME}' from blob...")
     payload = json.dumps({
-        "model":  MODEL_NAME,
-        "from":   GGUF_PATH,
-        "system": "You are AIos, the AI core of an Arch-based Linux system. Help users manage their system through voice or text commands. Be concise — responses may be spoken aloud.",
+        "model": MODEL_NAME,
+        "files": {
+            "model.gguf": f"sha256:{sha256}"
+        },
+        "system": "You are AIos, the AI core of an Arch-based Linux system. Help users manage their system through voice or text. Be concise.",
         "parameters": {
             "num_ctx":     4096,
             "temperature": 0.7
         }
     }).encode()
 
-    write_status(f"POSTing to {OLLAMA_URL}/api/create (Ollama 0.18+ format)...")
-    write_status(f"Reading {gguf_size // 1024 // 1024}MB from USB — may take 1-3 minutes:")
-
+    req = urllib.request.Request(
+        f"{OLLAMA_URL}/api/create",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
     try:
-        req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/create",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             for line in resp:
                 try:
                     event = json.loads(line.decode().strip())
                     status = event.get("status", "")
-                    completed = event.get("completed", 0)
-                    total = event.get("total", 0)
-
-                    if total > 0:
-                        pct = int(completed / total * 100)
-                        mb_done = completed // 1024 // 1024
-                        mb_total = total // 1024 // 1024
-                        bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
-                        write_status(f"Importing: [{bar}] {pct}% ({mb_done}/{mb_total}MB)")
-                    elif status:
-                        write_status(f"Importing: {status}")
+                    if status:
+                        write_status(f"Create: {status}")
                 except Exception:
                     pass
+        write_status(f"Model '{MODEL_NAME}' created successfully")
         return True
     except urllib.error.HTTPError as e:
-        body = e.read().decode() if e.fp else "no body"
-        write_status(f"ERROR HTTP {e.code}: {e.reason} — {body}")
+        body = e.read().decode() if e.fp else ""
+        write_status(f"Create HTTP {e.code}: {body}")
         return False
     except Exception as e:
-        write_status(f"ERROR during import: {type(e).__name__}: {e}")
+        write_status(f"Create error: {e}")
         return False
 
+
+def model_exists() -> bool:
+    try:
+        req = urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=5)
+        data = json.loads(req.read())
+        return any(m.get("name", "").startswith(MODEL_NAME) for m in data.get("models", []))
+    except Exception:
+        return False
+
+
 def main():
+    import sys
+
     if READY_FLAG.exists():
-        write_status("Model already imported")
+        write_status("Model already set up — nothing to do")
         sys.exit(0)
+
+    if not Path(GGUF_PATH).exists():
+        write_status(f"FATAL: GGUF not found at {GGUF_PATH}")
+        sys.exit(1)
 
     if not wait_for_ollama():
         sys.exit(1)
 
     if model_exists():
-        write_status("Model already in Ollama")
+        write_status(f"Model '{MODEL_NAME}' already in Ollama")
         READY_FLAG.touch()
         sys.exit(0)
 
-    success = create_model_with_progress()
+    # Step 1: compute hash
+    sha256 = compute_sha256(GGUF_PATH)
 
-    if success and model_exists():
-        write_status("READY: Qwen3 0.6B loaded and ready")
+    # Step 2: upload blob if not already there
+    if blob_exists(sha256):
+        write_status("Blob already in Ollama store — skipping upload")
+    else:
+        if not upload_blob(GGUF_PATH, sha256):
+            sys.exit(1)
+
+    # Step 3: create model
+    if not create_model(sha256):
+        sys.exit(1)
+
+    # Verify
+    if model_exists():
+        write_status("READY: Qwen3 0.6B loaded — AI is active")
+        READY_FLAG.parent.mkdir(parents=True, exist_ok=True)
         READY_FLAG.touch()
         sys.exit(0)
     else:
-        write_status("FAILED: Model import failed — AI will retry on next request")
+        write_status("ERROR: Model created but not found in listing")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
