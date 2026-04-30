@@ -1,0 +1,110 @@
+#!/opt/archspeech/bin/python3
+"""
+AIos model setup — imports Qwen3 0.6B into Ollama via streaming API.
+Writes progress to /var/lib/aios/model_status for the status pane to read.
+"""
+import json, time, subprocess, sys, os
+from pathlib import Path
+import urllib.request, urllib.error
+
+STATUS_FILE = Path("/var/lib/aios/model_status")
+READY_FLAG  = Path("/var/lib/aios/.model_ready")
+GGUF_PATH   = "/usr/local/lib/archspeech/models/qwen3-0.6b.gguf"
+MODEL_NAME  = "aios-local"
+MODELFILE   = "/etc/archspeech/Modelfile"
+OLLAMA_URL  = "http://localhost:11434"
+
+def write_status(msg: str):
+    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATUS_FILE.write_text(msg)
+    print(msg, flush=True)
+
+def wait_for_ollama(timeout=120):
+    write_status("Waiting for Ollama to start...")
+    for i in range(timeout):
+        try:
+            urllib.request.urlopen(f"{OLLAMA_URL}/api/version", timeout=2)
+            write_status("Ollama is ready")
+            return True
+        except Exception:
+            time.sleep(1)
+    write_status("ERROR: Ollama did not start in time")
+    return False
+
+def model_exists() -> bool:
+    try:
+        req = urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=5)
+        data = json.loads(req.read())
+        return any(m.get("name","").startswith(MODEL_NAME) for m in data.get("models", []))
+    except Exception:
+        return False
+
+def create_model_with_progress():
+    if not Path(GGUF_PATH).exists():
+        write_status(f"ERROR: Model file not found at {GGUF_PATH}")
+        return False
+
+    modelfile_content = Path(MODELFILE).read_text() if Path(MODELFILE).exists() else f"FROM {GGUF_PATH}"
+
+    payload = json.dumps({
+        "name": MODEL_NAME,
+        "modelfile": modelfile_content
+    }).encode()
+
+    write_status("Starting model import (reading from USB, please wait)...")
+
+    try:
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/create",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            for line in resp:
+                try:
+                    event = json.loads(line.decode().strip())
+                    status = event.get("status", "")
+                    completed = event.get("completed", 0)
+                    total = event.get("total", 0)
+
+                    if total > 0:
+                        pct = int(completed / total * 100)
+                        mb_done = completed // 1024 // 1024
+                        mb_total = total // 1024 // 1024
+                        bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+                        write_status(f"Importing: [{bar}] {pct}% ({mb_done}/{mb_total}MB)")
+                    elif status:
+                        write_status(f"Importing: {status}")
+                except Exception:
+                    pass
+        return True
+    except Exception as e:
+        write_status(f"ERROR during import: {e}")
+        return False
+
+def main():
+    if READY_FLAG.exists():
+        write_status("Model already imported")
+        sys.exit(0)
+
+    if not wait_for_ollama():
+        sys.exit(1)
+
+    if model_exists():
+        write_status("Model already in Ollama")
+        READY_FLAG.touch()
+        sys.exit(0)
+
+    success = create_model_with_progress()
+
+    if success and model_exists():
+        write_status("READY: Qwen3 0.6B loaded and ready")
+        READY_FLAG.touch()
+        sys.exit(0)
+    else:
+        write_status("FAILED: Model import failed — AI will retry on next request")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

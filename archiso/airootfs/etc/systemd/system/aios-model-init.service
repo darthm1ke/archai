@@ -1,28 +1,16 @@
 [Unit]
 Description=AIos - Import Qwen3 0.6B into Ollama
-# Wait for network and time, but don't hard-depend on a specific ollama service name
-# since ollama/ollama-vulkan/ollama-rocm all expose the same API port
-After=network.target time-sync.target
+After=network.target
 ConditionPathExists=/usr/local/lib/archspeech/models/qwen3-0.6b.gguf
 ConditionPathExists=!/var/lib/aios/.model_ready
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Wait for Ollama API regardless of which variant is installed
-ExecStart=/bin/bash -c '\
-    echo "Waiting for Ollama API..."; \
-    timeout=120; elapsed=0; \
-    until curl -sf http://localhost:11434/api/version > /dev/null 2>&1; do \
-        sleep 2; elapsed=$((elapsed+2)); \
-        [ $elapsed -ge $timeout ] && echo "Ollama API timeout" && exit 1; \
-    done; \
-    echo "Ollama ready, importing model..."; \
-    ollama create aios-local -f /etc/archspeech/Modelfile && \
-    mkdir -p /var/lib/aios && \
-    touch /var/lib/aios/.model_ready && \
-    echo "AIos model import complete"'
-TimeoutStartSec=180
+ExecStart=/opt/archspeech/bin/python3 /usr/local/bin/aios-model-setup
+TimeoutStartSec=600
+Restart=on-failure
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
