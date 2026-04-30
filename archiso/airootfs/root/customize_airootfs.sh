@@ -21,7 +21,7 @@ fi
 # Chroot has no network access so pulling here always fails silently.
 
 # ── Enable core services ──────────────────────────────────────────────────────
-systemctl enable ollama.service
+systemctl enable ollama.service 2>/dev/null || systemctl enable ollama-vulkan.service 2>/dev/null || true
 systemctl enable aios-model-init.service
 systemctl enable archspeech.service
 systemctl enable archspeech-voice.service

@@ -1,5 +1,5 @@
 [Unit]
-Description=AIos - Import TinyLlama into Ollama on first boot
+Description=AIos - Import Qwen3 0.6B into Ollama
 After=ollama.service network.target
 Requires=ollama.service
 ConditionPathExists=/usr/local/lib/archspeech/models/qwen3-0.6b.gguf
@@ -8,8 +8,10 @@ ConditionPathExists=!/var/lib/aios/.model_ready
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/bin/sleep 2
-ExecStart=/bin/bash -c 'ollama create tinyllama -f /etc/archspeech/Modelfile && mkdir -p /var/lib/aios && touch /var/lib/aios/.model_ready'
+# Wait until Ollama API is actually responding before trying to import
+ExecStartPre=/bin/bash -c 'echo "Waiting for Ollama..."; until curl -sf http://localhost:11434/api/version > /dev/null 2>&1; do sleep 1; done; echo "Ollama ready"'
+ExecStart=/bin/bash -c 'ollama create aios -f /etc/archspeech/Modelfile && mkdir -p /var/lib/aios && touch /var/lib/aios/.model_ready && echo "AIos model ready"'
+TimeoutStartSec=120
 StandardOutput=journal
 StandardError=journal
 

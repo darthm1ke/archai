@@ -40,8 +40,8 @@ htop
 man-db
 man-pages
 
-# --- Local AI inference ---
-ollama
+# --- Local AI inference (Vulkan = GPU-accelerated on AMD, Intel, NVIDIA) ---
+ollama-vulkan
 
 # --- Python (AI daemon runtime) ---
 python
