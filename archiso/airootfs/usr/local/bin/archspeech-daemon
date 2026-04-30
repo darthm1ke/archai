@@ -308,23 +308,34 @@ def ensure_ollama_model(model: str = "qwen3:0.6b") -> bool:
 
 
 async def handle_local(user_message: str) -> str:
-    """Use Ollama's local Qwen3 0.6B with cheat sheet context and thinking disabled."""
+    """Use Ollama native /api/chat — supports think:false at top level unlike OpenAI-compat endpoint."""
     ensure_ollama_model("aios-local")
     context = load_cheatsheet(user_message)
-    augmented_message = user_message + context
-    ollama_config = {
-        "provider":      "openai_compatible",
-        "api_key":       "ollama",
-        "api_url":       "http://localhost:11434/v1",
-        "model":         "aios-local",
-        "tools_enabled": False,
-        "extra_body":    {"think": False}   # Qwen3: disable thinking mode at inference time
-    }
+    import urllib.request as _ur, json as _json
+
+    payload = _json.dumps({
+        "model":   "aios-local",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message + context}
+        ],
+        "think":  False,   # Disable Qwen3 thinking — must be top-level in native API
+        "stream": False
+    }).encode()
+
+    req = _ur.Request(
+        "http://localhost:11434/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
     try:
-        return await handle_openai_compatible(augmented_message, ollama_config)
+        with _ur.urlopen(req, timeout=300) as resp:
+            result = _json.loads(resp.read())
+            return result.get("message", {}).get("content", "").strip()
     except Exception as e:
-        log.error(f"Ollama unavailable: {e}")
-        return "Local AI is setting up — this takes about a minute on first boot. Try again shortly."
+        log.error(f"Ollama native API error: {e}")
+        return "Local AI is starting up. Try again in a moment."
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
