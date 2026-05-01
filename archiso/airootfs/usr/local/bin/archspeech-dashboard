@@ -438,7 +438,18 @@ async def dashboard_main(stdscr):
 
 
 def main():
-    asyncio.run(curses.wrapper(lambda s: asyncio.get_event_loop().run_until_complete(dashboard_main(s))))
+    # Create event loop first, then pass it into curses.wrapper
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        curses.wrapper(lambda s: loop.run_until_complete(dashboard_main(s)))
+    except Exception as e:
+        print(f"\n[Dashboard error: {e}]\nFalling back to text mode...")
+        import time; time.sleep(2)
+        os.execv("/opt/archspeech/bin/python3",
+                 ["/opt/archspeech/bin/python3", "/usr/local/bin/archspeech-live"])
+    finally:
+        loop.close()
 
 if __name__ == "__main__":
     main()

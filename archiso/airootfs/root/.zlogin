@@ -22,5 +22,8 @@ if [ "$(tty)" = "/dev/tty1" ]; then
     printf '\033[?25h'      # show cursor
     tput reset 2>/dev/null  # belt and suspenders
 
-    exec /usr/local/bin/archspeech-dashboard
+    # Try full dashboard — fall back to simple live terminal if it crashes
+    /usr/local/bin/archspeech-dashboard || \
+    /usr/local/bin/archspeech-live || \
+    echo "AIos UI failed — you are at a root shell. Run archspeech-live to retry."
 fi
