@@ -22,6 +22,7 @@ fi
 
 # ── Enable core services ──────────────────────────────────────────────────────
 systemctl enable ollama.service 2>/dev/null || systemctl enable ollama-vulkan.service 2>/dev/null || true
+systemctl enable aios-mount-data.service
 systemctl enable aios-model-init.service
 systemctl enable archspeech.service
 # archspeech-voice.service disabled — uses piper/whisper-cli which aren't installed

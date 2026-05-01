@@ -1,0 +1,15 @@
+[Unit]
+Description=AIos - Load models from USB data partition
+After=local-fs.target
+Before=ollama.service aios-model-init.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/aios-mount-data
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

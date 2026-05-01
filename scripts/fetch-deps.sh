@@ -23,7 +23,10 @@ echo ""
 # Pull via Ollama registry so it gets proper templates and config
 # Pull qwen2.5:0.5b directly into the ISO staging directory
 # OLLAMA_MODELS env var tells Ollama exactly where to store it
-OLLAMA_STAGED="$PROJECT/archiso/airootfs/usr/local/lib/archspeech/ollama"
+# Models go on the Ventoy USB beside the ISO — NOT inside the squashfs
+# This keeps the ISO small and prevents boot hangs from large squashfs decompression
+VENTOY="/run/media/$USER/Ventoy"
+OLLAMA_STAGED="$VENTOY/aios-data/ollama"
 if [ -d "$OLLAMA_STAGED/models/manifests/registry.ollama.ai/library/qwen2.5" ]; then
     echo "✓ Qwen2.5 0.5B already staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
 else
@@ -62,18 +65,18 @@ echo "✓ Pip wheels cached ($(ls "$WHEELS_DIR" | wc -l) files)"
 # ── Whisper base model (~142MB) ───────────────────────────────────────────────
 # Pre-stage so voice-to-text works offline on first boot.
 # Whisper looks for models in ~/.cache/whisper/ — we stage to root's cache in airootfs.
-WHISPER_CACHE="$PROJECT/archiso/airootfs/root/.cache/whisper"
-WHISPER_MODEL="$WHISPER_CACHE/base.pt"
+WHISPER_DEST="$VENTOY/aios-data/whisper"
+WHISPER_MODEL="$WHISPER_DEST/base.pt"
 
 if [ -f "$WHISPER_MODEL" ]; then
-    echo "✓ Whisper base model already staged ($(du -sh "$WHISPER_MODEL" | cut -f1))"
+    echo "✓ Whisper base model already on Ventoy ($(du -sh "$WHISPER_MODEL" | cut -f1))"
 else
-    echo "▶ Downloading Whisper base model (~142MB)..."
-    mkdir -p "$WHISPER_CACHE"
+    echo "▶ Downloading Whisper base model (~142MB) to Ventoy..."
+    mkdir -p "$WHISPER_DEST"
     curl -L --progress-bar \
         "https://openaipublic.azureedge.net/main/whisper/models/ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e/base.pt" \
         -o "$WHISPER_MODEL"
-    echo "✓ Whisper base model staged"
+    echo "✓ Whisper base model on Ventoy"
 fi
 
 echo ""

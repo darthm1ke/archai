@@ -24,6 +24,7 @@ file_permissions=(
   ["/usr/local/bin/archspeech-dashboard"]="0:0:755"
   ["/usr/local/bin/aios-status"]="0:0:755"
   ["/usr/local/bin/aios-model-setup"]="0:0:755"
+  ["/usr/local/bin/aios-mount-data"]="0:0:755"
   ["/usr/local/bin/archspeech-ptt"]="0:0:755"
   ["/usr/local/bin/archspeech-ui"]="0:0:755"
   ["/usr/local/bin/archspeech-installer"]="0:0:755"

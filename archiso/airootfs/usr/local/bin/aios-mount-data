@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Finds the Ventoy USB partition and copies model data to RAM.
+# Models live beside the ISO on the USB — not inside the squashfs.
+
+set -euo pipefail
+
+DEST_OLLAMA="/tmp/ollama-models"
+DEST_WHISPER="/root/.cache/whisper"
+MOUNT="/mnt/aios-data"
+LOG="/var/log/archspeech/model-mount.log"
+
+mkdir -p "$(dirname "$LOG")" "$MOUNT"
+
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+
+log "Looking for AIos data partition..."
+
+# Try to find the Ventoy partition by label
+VENTOY_DEV=$(blkid -L "Ventoy" 2>/dev/null || true)
+
+if [ -z "$VENTOY_DEV" ]; then
+    # Fallback: scan all FAT32 partitions for the aios-data directory
+    for dev in /dev/sd?1 /dev/nvme?n?p1 /dev/mmcblk?p1; do
+        [ -b "$dev" ] || continue
+        mount -o ro "$dev" "$MOUNT" 2>/dev/null || continue
+        if [ -d "$MOUNT/aios-data" ]; then
+            VENTOY_DEV="$dev"
+            log "Found aios-data on $dev"
+            break
+        fi
+        umount "$MOUNT" 2>/dev/null || true
+    done
+fi
+
+if [ -z "$VENTOY_DEV" ]; then
+    log "ERROR: Could not find Ventoy/data partition — model will pull from internet"
+    exit 1
+fi
+
+# Mount if not already mounted
+if ! mountpoint -q "$MOUNT"; then
+    mount -o ro "$VENTOY_DEV" "$MOUNT" 2>/dev/null || {
+        log "ERROR: Could not mount $VENTOY_DEV"
+        exit 1
+    }
+fi
+
+log "Mounted $VENTOY_DEV at $MOUNT"
+
+# ── Ollama models ─────────────────────────────────────────────────────────────
+if [ -d "$MOUNT/aios-data/ollama/models" ]; then
+    log "Copying Ollama models to RAM (~400MB, please wait)..."
+    mkdir -p "$DEST_OLLAMA"
+    cp -r "$MOUNT/aios-data/ollama/models/." "$DEST_OLLAMA/"
+    log "Ollama models ready at $DEST_OLLAMA"
+else
+    log "WARNING: No Ollama models found at $MOUNT/aios-data/ollama/models"
+fi
+
+# ── Whisper model ─────────────────────────────────────────────────────────────
+if [ -f "$MOUNT/aios-data/whisper/base.pt" ]; then
+    log "Copying Whisper model to RAM..."
+    mkdir -p "$DEST_WHISPER"
+    cp "$MOUNT/aios-data/whisper/base.pt" "$DEST_WHISPER/"
+    log "Whisper model ready"
+else
+    log "WARNING: No Whisper model found at $MOUNT/aios-data/whisper/base.pt"
+fi
+
+umount "$MOUNT" 2>/dev/null || true
+log "Done — all models in RAM, USB can be removed if needed"
