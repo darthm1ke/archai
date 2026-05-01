@@ -22,5 +22,5 @@ if [ "$(tty)" = "/dev/tty1" ]; then
     printf '\033[?25h'      # show cursor
     tput reset 2>/dev/null  # belt and suspenders
 
-    exec /usr/local/bin/archspeech-ui
+    exec /usr/local/bin/archspeech-dashboard
 fi
