@@ -50,6 +50,23 @@ echo "✓ Pip wheels cached ($(ls "$WHEELS_DIR" | wc -l) files)"
 # evdev: installed via pacman (python-evdev) — no pip wheel needed
 # llama-cpp-python: compiles from source — pip caches the build automatically
 
+# ── Whisper base model (~142MB) ───────────────────────────────────────────────
+# Pre-stage so voice-to-text works offline on first boot.
+# Whisper looks for models in ~/.cache/whisper/ — we stage to root's cache in airootfs.
+WHISPER_CACHE="$PROJECT/archiso/airootfs/root/.cache/whisper"
+WHISPER_MODEL="$WHISPER_CACHE/base.pt"
+
+if [ -f "$WHISPER_MODEL" ]; then
+    echo "✓ Whisper base model already staged ($(du -sh "$WHISPER_MODEL" | cut -f1))"
+else
+    echo "▶ Downloading Whisper base model (~142MB)..."
+    mkdir -p "$WHISPER_CACHE"
+    curl -L --progress-bar \
+        "https://openaipublic.azureedge.net/main/whisper/models/ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e/base.pt" \
+        -o "$WHISPER_MODEL"
+    echo "✓ Whisper base model staged"
+fi
+
 echo ""
 echo "══════════════════════════════════════════"
 echo "  All deps ready. Run rebuild.sh to build."

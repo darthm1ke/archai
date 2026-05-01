@@ -22,7 +22,8 @@ from evdev import InputDevice, ecodes
 SOCKET_PATH  = "/run/archspeech/daemon.sock"
 VOICE_FIFO   = "/run/archspeech/voice_input"
 LOG_PATH     = Path("/var/log/archspeech/ptt.log")
-WHISPER_SIZE = "base"   # tiny/base/small/medium — base is the sweet spot
+WHISPER_SIZE  = "base"
+WHISPER_CACHE = "/root/.cache/whisper"   # pre-staged in ISO, no internet needed
 
 logging.basicConfig(
     filename=str(LOG_PATH),
@@ -56,9 +57,11 @@ def transcribe(wav_path: str) -> str:
             [
                 "whisper", wav_path,
                 "--model", WHISPER_SIZE,
+                "--download-root", WHISPER_CACHE,
                 "--output_format", "txt",
                 "--output_dir", str(out_dir),
-                "--fp16", "False"
+                "--fp16", "False",
+                "--language", "en"
             ],
             capture_output=True, text=True, timeout=60
         )
