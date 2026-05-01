@@ -55,41 +55,42 @@ fi
 # ── Benchmark function ────────────────────────────────────────────────────────
 CHEATSHEET_DIR="$PROJECT/archiso/airootfs/etc/archspeech/cheatsheets"
 
-inject_context() {
-    local prompt="$1"
-    local pl="${prompt,,}"
-    local ctx=""
-    [[ "$pl" =~ nginx|apache|ssl|certbot|web|vhost ]] && ctx+="$(cat "$CHEATSHEET_DIR/webserver.md" 2>/dev/null)"$'\n'
-    [[ "$pl" =~ pacman|install|update|package|yay ]]  && ctx+="$(cat "$CHEATSHEET_DIR/packages.md" 2>/dev/null)"$'\n'
-    [[ "$pl" =~ systemctl|service|enable|start ]]     && ctx+="$(cat "$CHEATSHEET_DIR/services.md" 2>/dev/null)"$'\n'
-    [[ "$pl" =~ disk|space|df|storage ]]              && ctx+="$(cat "$CHEATSHEET_DIR/install.md" 2>/dev/null)"$'\n'
-    echo "$ctx"
-}
-
 run_test() {
     local desc="$1" prompt="$2" gpu_layers="${3:-999}"
     info "Test: $desc"
-    local cheat
-    cheat=$(inject_context "$prompt")
+
+    # Build cheat sheet context based on keywords (|| true prevents set -e exit on no-match)
+    local pl="${prompt,,}" cheat=""
+    [[ "$pl" =~ nginx|apache|ssl|web ]]         && cheat+="$(cat "$CHEATSHEET_DIR/webserver.md" 2>/dev/null)"$'\n' || true
+    [[ "$pl" =~ pacman|install|update|package ]] && cheat+="$(cat "$CHEATSHEET_DIR/packages.md" 2>/dev/null)"$'\n'  || true
+    [[ "$pl" =~ systemctl|service|enable ]]      && cheat+="$(cat "$CHEATSHEET_DIR/services.md" 2>/dev/null)"$'\n'  || true
+    [[ "$pl" =~ disk|space|storage ]]            && cheat+="$(cat "$CHEATSHEET_DIR/install.md" 2>/dev/null)"$'\n'   || true
+
+    # Use Python to build the JSON safely — cheat sheet content has quotes/newlines
+    local full_prompt="$prompt"
+    [ -n "$cheat" ] && full_prompt="$prompt
+
+=== REFERENCE ===
+$cheat"
 
     local t0=$(date +%s%N)
     local response
+    # Use Python to safely JSON-encode the payload (handles quotes/newlines in cheat sheets)
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'model': '$MODEL_NAME',
+    'messages': [
+        {'role': 'system', 'content': 'You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise.'},
+        {'role': 'user',   'content': sys.argv[1]}
+    ],
+    'stream': False,
+    'options': {'num_ctx': 2048, 'temperature': 0.7, 'num_predict': 256, 'num_gpu': $gpu_layers}
+}))" "$full_prompt" 2>/dev/null)
     response=$(curl -sf -X POST "$OLLAMA_URL/api/chat" \
         -H 'Content-Type: application/json' \
-        -d "{
-            \"model\": \"$MODEL_NAME\",
-            \"messages\": [
-                {\"role\":\"system\",\"content\":\"You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise.\"},
-                {\"role\":\"user\",\"content\":\"$prompt\n\n$cheat\"}
-            ],
-            \"stream\": false,
-            \"options\": {
-                \"num_ctx\": 2048,
-                \"temperature\": 0.7,
-                \"num_predict\": 256,
-                \"num_gpu\": $gpu_layers
-            }
-        }" 2>/dev/null)
+        -d "$payload" 2>/dev/null)
     local t1=$(date +%s%N)
     local ms=$(( (t1 - t0) / 1000000 ))
 
