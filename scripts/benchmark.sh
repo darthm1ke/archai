@@ -53,9 +53,24 @@ else
 fi
 
 # ── Benchmark function ────────────────────────────────────────────────────────
+CHEATSHEET_DIR="$PROJECT/archiso/airootfs/etc/archspeech/cheatsheets"
+
+inject_context() {
+    local prompt="$1"
+    local pl="${prompt,,}"
+    local ctx=""
+    [[ "$pl" =~ nginx|apache|ssl|certbot|web|vhost ]] && ctx+="$(cat "$CHEATSHEET_DIR/webserver.md" 2>/dev/null)"$'\n'
+    [[ "$pl" =~ pacman|install|update|package|yay ]]  && ctx+="$(cat "$CHEATSHEET_DIR/packages.md" 2>/dev/null)"$'\n'
+    [[ "$pl" =~ systemctl|service|enable|start ]]     && ctx+="$(cat "$CHEATSHEET_DIR/services.md" 2>/dev/null)"$'\n'
+    [[ "$pl" =~ disk|space|df|storage ]]              && ctx+="$(cat "$CHEATSHEET_DIR/install.md" 2>/dev/null)"$'\n'
+    echo "$ctx"
+}
+
 run_test() {
     local desc="$1" prompt="$2" gpu_layers="${3:-999}"
     info "Test: $desc"
+    local cheat
+    cheat=$(inject_context "$prompt")
 
     local t0=$(date +%s%N)
     local response
@@ -65,7 +80,7 @@ run_test() {
             \"model\": \"$MODEL_NAME\",
             \"messages\": [
                 {\"role\":\"system\",\"content\":\"You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise.\"},
-                {\"role\":\"user\",\"content\":\"$prompt\"}
+                {\"role\":\"user\",\"content\":\"$prompt\n\n$cheat\"}
             ],
             \"stream\": false,
             \"options\": {
