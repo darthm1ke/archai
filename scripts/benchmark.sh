@@ -162,7 +162,7 @@ run_test() {
             \"messages\": [{\"role\":\"user\",\"content\":\"/no_think\\n$prompt\"}],
             \"think\": false,
             \"stream\": false,
-            \"options\": {\"num_ctx\":2048,\"temperature\":0.7,\"num_predict\":256,\"num_gpu\":$gpu_layers}
+            \"options\": {\"num_ctx\":2048,\"temperature\":0.7,\"num_predict\":512,\"num_gpu\":$gpu_layers}
         }" 2>/dev/null)
     local t1=$(date +%s%N)
 
@@ -186,18 +186,19 @@ run_test() {
     log ""
 }
 
-# ── GPU mode (default — uses whatever GPU is available) ───────────────────────
+# ── GPU mode (default) ────────────────────────────────────────────────────────
 echo -e "\n${BOLD}--- GPU mode ---${RESET}"
-run_test "Cold load + simple greeting" "Say hello in one sentence."
-run_test "Warm: system command" "How do I update all packages on Arch Linux?"
-run_test "Warm: quick question" "What is pacman?"
+run_test "Cold: install nginx"        "install nginx and enable it on boot"
+run_test "Warm: update packages"      "update all my packages"
+run_test "Warm: check disk space"     "how much disk space do I have left"
+run_test "Warm: restart a service"    "restart the apache service"
 
-# ── CPU-only mode (simulates Intel iGPU / slower hardware) ───────────────────
-echo -e "\n${BOLD}--- CPU-only mode (simulates Intel iGPU baseline) ---${RESET}"
+# ── CPU-only mode (simulates Intel iGPU baseline) ─────────────────────────────
+echo -e "\n${BOLD}--- CPU-only mode (Intel iGPU simulation) ---${RESET}"
 log "=== CPU-only (num_gpu=0) ==="
-run_test "CPU cold: greeting"        "Say hello in one sentence."              0
-run_test "CPU warm: system command"  "How do I update all packages on Arch?"   0
-run_test "CPU warm: quick question"  "What is pacman?"                         0
+run_test "CPU: install nginx"         "install nginx and enable it on boot"     0
+run_test "CPU: update packages"       "update all my packages"                  0
+run_test "CPU: check disk space"      "how much disk space do I have left"      0
 
 # ── GPU info ──────────────────────────────────────────────────────────────────
 print_header "GPU Allocation"
