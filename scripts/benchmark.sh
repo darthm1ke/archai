@@ -126,8 +126,12 @@ PYEOF
     log "Blob upload: ${BLOB_MS}ms at ~${BLOB_MBS} MB/s"
 fi
 
-# Create/verify model
-if ! ollama list 2>/dev/null | grep -q "$MODEL_NAME"; then
+# Always recreate model to pick up latest Modelfile (template changes)
+if ollama list 2>/dev/null | grep -q "$MODEL_NAME"; then
+    info "Removing old model to apply updated template..."
+    ollama rm "$MODEL_NAME" 2>/dev/null || true
+fi
+if true; then
     info "Creating model '$MODEL_NAME'..."
     CREATE_START=$(date +%s%N)
     curl -sf -X POST "$OLLAMA_URL/api/create" \

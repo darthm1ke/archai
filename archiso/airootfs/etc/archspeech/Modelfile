@@ -1,4 +1,16 @@
 FROM /usr/local/lib/archspeech/models/qwen3-0.6b.gguf
+
 PARAMETER num_ctx 2048
 PARAMETER temperature 0.7
 PARAMETER num_predict 256
+
+# Qwen3 chat template — required for /no_think and proper conversation structure
+TEMPLATE """{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}
+{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+
+SYSTEM "You are AIos, an AI assistant for Arch Linux. Give short, direct answers. For packages use pacman. Be concise."
