@@ -13,6 +13,10 @@ archiso/airootfs/usr/local/lib/archspeech/wheels/
 archai-test.qcow2
 aios-boot.log
 
+# Ollama model blobs — too large for GitHub (>100MB), staged by fetch-deps.sh
+archiso/airootfs/usr/local/lib/archspeech/ollama/
+archiso/airootfs/root/.cache/
+
 # OS
 .DS_Store
 Thumbs.db

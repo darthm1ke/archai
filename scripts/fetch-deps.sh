@@ -27,15 +27,24 @@ OLLAMA_STAGED="$PROJECT/archiso/airootfs/usr/local/lib/archspeech/ollama"
 if [ -d "$OLLAMA_STAGED/models/manifests/registry.ollama.ai/library/qwen2.5" ]; then
     echo "✓ Qwen2.5 0.5B already staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
 else
-    echo "▶ Pulling qwen2.5:0.5b directly into ISO staging directory..."
-    mkdir -p "$OLLAMA_STAGED"
-    # Start a temporary Ollama instance pointing at our staging dir
-    OLLAMA_MODELS="$OLLAMA_STAGED" ollama serve &>/tmp/ollama-stage.log &
-    STAGE_PID=$!
-    sleep 3
-    OLLAMA_MODELS="$OLLAMA_STAGED" ollama pull qwen2.5:0.5b
-    kill $STAGE_PID 2>/dev/null; wait $STAGE_PID 2>/dev/null || true
-    echo "✓ Staged: $(du -sh "$OLLAMA_STAGED/models" | cut -f1)"
+    echo "▶ Pulling qwen2.5:0.5b..."
+    ollama pull qwen2.5:0.5b 2>/dev/null || true
+
+    # Find where Ollama stored it (varies by setup) and copy to staging
+    MODEL_SRC=$(find /tmp /var/lib/ollama "$HOME/.ollama" -name "0.5b" -path "*/qwen2.5/*" 2>/dev/null | head -1 | sed 's|/manifests/.*||')
+    if [ -z "$MODEL_SRC" ]; then
+        # Try manifest path
+        MODEL_SRC=$(find /tmp /var/lib/ollama "$HOME/.ollama" -path "*/manifests/registry.ollama.ai/library/qwen2.5" -type d 2>/dev/null | head -1 | sed 's|/manifests/.*||')
+    fi
+
+    if [ -n "$MODEL_SRC" ] && [ -d "$MODEL_SRC" ]; then
+        mkdir -p "$OLLAMA_STAGED/models"
+        [ -d "$MODEL_SRC/blobs" ]     && cp -r "$MODEL_SRC/blobs"     "$OLLAMA_STAGED/models/"
+        [ -d "$MODEL_SRC/manifests" ] && cp -r "$MODEL_SRC/manifests" "$OLLAMA_STAGED/models/"
+        echo "✓ Staged from $MODEL_SRC — $(du -sh "$OLLAMA_STAGED/models" | cut -f1)"
+    else
+        echo "✗ Could not find model — run fetch-deps.sh again after: ollama pull qwen2.5:0.5b"
+    fi
 fi
 
 # ── pip wheels (pure-Python packages only, cached as wheels) ─────────────────
