@@ -19,17 +19,23 @@ echo ""
 # ── TinyLlama 1.1B Q4_K_M (~640MB) ──────────────────────────────────────────
 # Downloaded as GGUF and baked into the ISO. Ollama imports it on first boot
 # via aios-model-init.service — no internet needed after that.
-# Qwen3 0.6B Q4_K_M — ~400MB, newest Qwen architecture, better than Qwen2.5 0.5B
-# Thinking mode disabled at inference time for fast voice responses
-MODEL="$MODELS_DIR/qwen3-0.6b.gguf"
-if [ -f "$MODEL" ]; then
-    echo "✓ Qwen3 0.6B already downloaded ($(du -sh "$MODEL" | cut -f1))"
+# Qwen2.5 0.5B — no thinking mode, coherent responses, ~390MB
+# Pull via Ollama registry so it gets proper templates and config
+OLLAMA_STAGED="$PROJECT/archiso/airootfs/usr/share/ollama/.ollama"
+if [ -d "$OLLAMA_STAGED/models/manifests/registry.ollama.ai/library/qwen2.5" ]; then
+    echo "✓ Qwen2.5 0.5B already staged for ISO"
 else
-    echo "▶ Downloading Qwen3 0.6B Q4_K_M (~400MB)..."
-    curl -L --progress-bar \
-        "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf" \
-        -o "$MODEL"
-    echo "✓ Qwen3 0.6B downloaded"
+    echo "▶ Pulling qwen2.5:0.5b from Ollama registry (properly configured)..."
+    ollama pull qwen2.5:0.5b
+    echo "▶ Staging Ollama model store into airootfs..."
+    mkdir -p "$OLLAMA_STAGED"
+    OLLAMA_HOME="${HOME}/.ollama"
+    if [ -d "$OLLAMA_HOME/models" ]; then
+        cp -r "$OLLAMA_HOME/models" "$OLLAMA_STAGED/"
+        echo "✓ Ollama model store staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
+    else
+        echo "⚠ Could not find Ollama models at $OLLAMA_HOME — model will pull on first boot"
+    fi
 fi
 
 # ── pip wheels (pure-Python packages only, cached as wheels) ─────────────────

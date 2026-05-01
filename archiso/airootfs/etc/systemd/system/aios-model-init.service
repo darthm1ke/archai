@@ -1,16 +1,25 @@
 [Unit]
-Description=AIos - Import Qwen3 0.6B into Ollama
+Description=AIos - Ensure Qwen2.5 0.5B is available in Ollama
 After=network.target
-ConditionPathExists=/usr/local/lib/archspeech/models/qwen3-0.6b.gguf
 ConditionPathExists=!/var/lib/aios/.model_ready
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/opt/archspeech/bin/python3 /usr/local/bin/aios-model-setup
+# Wait for Ollama API, then pull or verify model
+ExecStart=/bin/bash -c '\
+    echo "Waiting for Ollama..."; \
+    until curl -sf http://localhost:11434/api/version > /dev/null 2>&1; do sleep 1; done; \
+    echo "Ollama ready"; \
+    if ollama list | grep -q "qwen2.5:0.5b"; then \
+        echo "Model already available"; \
+    else \
+        echo "Pulling qwen2.5:0.5b from registry..."; \
+        ollama pull qwen2.5:0.5b; \
+    fi; \
+    mkdir -p /var/lib/aios && touch /var/lib/aios/.model_ready; \
+    echo "READY: qwen2.5:0.5b loaded"'
 TimeoutStartSec=600
-Restart=on-failure
-RestartSec=10
 StandardOutput=journal
 StandardError=journal
 

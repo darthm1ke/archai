@@ -312,19 +312,18 @@ def ensure_ollama_model(model: str = "qwen3:0.6b") -> bool:
 
 async def handle_local(user_message: str) -> str:
     """Use Ollama native /api/chat with minimal prompt for fast 0.6B inference."""
-    ensure_ollama_model("aios-local")
+    ensure_ollama_model("qwen2.5:0.5b")
     import urllib.request as _ur, json as _json
 
     # Only inject cheat sheet for complex Arch-specific queries, not casual conversation
     context = load_cheatsheet(user_message) if len(user_message.split()) > 3 else ""
 
     payload = _json.dumps({
-        "model":   "aios-local",
+        "model":   "qwen2.5:0.5b",
         "messages": [
             {"role": "system", "content": LOCAL_SYSTEM_PROMPT},
-            {"role": "user",   "content": "/no_think\n" + user_message + context}
+            {"role": "user",   "content": user_message + context}
         ],
-        "think":   False,   # Belt-and-suspenders: also pass think:false
         "stream":  False,
         "options": {
             "num_ctx":     2048,   # Half of before — 0.6B doesn't need 4096
