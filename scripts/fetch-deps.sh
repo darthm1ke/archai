@@ -21,21 +21,22 @@ echo ""
 # via aios-model-init.service — no internet needed after that.
 # Qwen2.5 0.5B — no thinking mode, coherent responses, ~390MB
 # Pull via Ollama registry so it gets proper templates and config
-OLLAMA_STAGED="$PROJECT/archiso/airootfs/usr/share/ollama/.ollama"
+# Stage Ollama model to /usr/local/lib/archspeech/ollama/ — avoids conflict with ollama package
+# which owns /usr/share/ollama
+OLLAMA_STAGED="$PROJECT/archiso/airootfs/usr/local/lib/archspeech/ollama"
 if [ -d "$OLLAMA_STAGED/models/manifests/registry.ollama.ai/library/qwen2.5" ]; then
-    echo "✓ Qwen2.5 0.5B already staged for ISO"
+    echo "✓ Qwen2.5 0.5B already staged for ISO ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
 else
-    echo "▶ Pulling qwen2.5:0.5b from Ollama registry (properly configured)..."
+    echo "▶ Pulling qwen2.5:0.5b from Ollama registry..."
     ollama pull qwen2.5:0.5b
-    echo "▶ Staging Ollama model store into airootfs..."
+    echo "▶ Staging model store to airootfs/usr/local/lib/archspeech/ollama/..."
     mkdir -p "$OLLAMA_STAGED"
-    # Ollama system service stores models at /var/lib/ollama
     OLLAMA_HOME="/var/lib/ollama"
     if [ -d "$OLLAMA_HOME/models" ]; then
         cp -r "$OLLAMA_HOME/models" "$OLLAMA_STAGED/"
-        echo "✓ Ollama model store staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
+        echo "✓ Staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
     else
-        echo "⚠ Models not found at $OLLAMA_HOME — model will pull on first boot (needs internet)"
+        echo "⚠ $OLLAMA_HOME not found — model will pull on first boot"
     fi
 fi
 
