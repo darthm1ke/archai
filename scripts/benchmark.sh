@@ -155,7 +155,7 @@ run_test() {
         -H 'Content-Type: application/json' \
         -d "{
             \"model\": \"$MODEL_NAME\",
-            \"messages\": [{\"role\":\"user\",\"content\":\"$prompt\"}],
+            \"messages\": [{\"role\":\"user\",\"content\":\"/no_think\\n$prompt\"}],
             \"think\": false,
             \"stream\": false,
             \"options\": {\"num_ctx\":2048,\"temperature\":0.7,\"num_predict\":256}

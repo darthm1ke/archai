@@ -321,10 +321,10 @@ async def handle_local(user_message: str) -> str:
     payload = _json.dumps({
         "model":   "aios-local",
         "messages": [
-            {"role": "system", "content": LOCAL_SYSTEM_PROMPT},  # Short prompt = fast
-            {"role": "user",   "content": user_message + context}
+            {"role": "system", "content": LOCAL_SYSTEM_PROMPT},
+            {"role": "user",   "content": "/no_think\n" + user_message + context}
         ],
-        "think":   False,   # Disable Qwen3 thinking — top-level in native API
+        "think":   False,   # Belt-and-suspenders: also pass think:false
         "stream":  False,
         "options": {
             "num_ctx":     2048,   # Half of before — 0.6B doesn't need 4096
