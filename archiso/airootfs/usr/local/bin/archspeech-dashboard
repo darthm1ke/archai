@@ -1,184 +1,142 @@
 #!/opt/archspeech/bin/python3
 """
-AIos Dashboard — full-screen terminal UI
-Live mic bars, GPU, battery, AI status, system overview, conversation pane.
+AIos Dashboard — ANSI-based, works on VGA console, X11, Wayland, SSH.
+No curses dependency — pure escape codes for maximum compatibility.
 """
 
-import curses, asyncio, subprocess, threading, time, os, sys, select
+import asyncio, subprocess, threading, time, os, sys, select
 import json, urllib.request, struct, math
 from pathlib import Path
 
-SOCKET_PATH  = "/run/archspeech/daemon.sock"
-STATUS_FILE  = Path("/var/lib/aios/model_status")
-READY_FLAG   = Path("/var/lib/aios/.model_ready")
-VOICE_FIFO   = Path("/run/archspeech/voice_input")
-LOG_PATH     = Path("/var/log/archspeech/daemon.log")
+SOCKET_PATH = "/run/archspeech/daemon.sock"
+STATUS_FILE = Path("/var/lib/aios/model_status")
+READY_FLAG  = Path("/var/lib/aios/.model_ready")
+VOICE_FIFO  = Path("/run/archspeech/voice_input")
+
+# ANSI helpers
+def cls():       print("\033[2J\033[H", end="", flush=True)
+def goto(r, c):  print(f"\033[{r};{c}H", end="", flush=True)
+def bold(s):     return f"\033[1m{s}\033[0m"
+def cyan(s):     return f"\033[1;36m{s}\033[0m"
+def green(s):    return f"\033[0;32m{s}\033[0m"
+def yellow(s):   return f"\033[0;33m{s}\033[0m"
+def red(s):      return f"\033[0;31m{s}\033[0m"
+def dim(s):      return f"\033[0;90m{s}\033[0m"
+
+def bar(pct, w, fill="█", empty="░"):
+    f = int(w * pct / 100)
+    return fill * f + empty * (w - f)
+
+def mic_bar(level, w):
+    f = int(w * level)
+    return "▄" * f + " " * (w - f)
+
+def box(title, content_lines, width):
+    top    = f"┌ {title} {'─' * max(0, width - len(title) - 4)}┐"
+    bottom = "└" + "─" * (width - 2) + "┘"
+    lines  = [top]
+    for line in content_lines:
+        padded = line[:width-4]
+        lines.append(f"│ {padded:<{width-4}} │")
+    lines.append(bottom)
+    return lines
 
 # ── Shared state ──────────────────────────────────────────────────────────────
-state = {
-    "mic_level":    0.0,      # 0-1
-    "mic_active":   True,     # always monitoring
-    "recording":    False,    # PTT active
-    "vol_level":    0.0,
-    "gpu_pct":      0,
-    "battery_pct":  -1,
-    "battery_chg":  False,
-    "cpu_pct":      0,
-    "ram_used":     0,
-    "ram_total":    0,
-    "net_up":       0,
-    "net_down":     0,
-    "model_status": "Waiting for Ollama...",
-    "model_ready":  False,
-    "messages":     [],       # [(role, text)]
-    "thinking":     False,
-    "voice_queue":  [],
+S = {
+    "mic":        0.0,
+    "vol":        80,
+    "gpu":        0,
+    "bat":        -1,
+    "bat_chg":    False,
+    "cpu":        0,
+    "ram_used":   0,
+    "ram_total":  0,
+    "net_up":     0,
+    "net_down":   0,
+    "ai_status":  "Starting...",
+    "ai_ready":   False,
+    "messages":   [],
+    "voice_q":    [],
+    "recording":  False,
 }
-state_lock = threading.Lock()
+SL = threading.Lock()
 
-# ── Hardware readers ──────────────────────────────────────────────────────────
-
-def read_battery():
-    for bat in ["BAT0","BAT1","BAT2"]:
-        cap = Path(f"/sys/class/power_supply/{bat}/capacity")
-        sta = Path(f"/sys/class/power_supply/{bat}/status")
-        if cap.exists():
-            try:
-                pct = int(cap.read_text().strip())
-                charging = sta.read_text().strip() == "Charging" if sta.exists() else False
-                return pct, charging
-            except Exception:
-                pass
-    return -1, False
-
-def read_gpu():
-    # Intel
-    for p in Path("/sys/class/drm").glob("card*/gt_cur_freq_mhz"):
-        try:
-            cur = int(p.read_text())
-            max_p = p.parent / "gt_max_freq_mhz"
-            mx = int(max_p.read_text()) if max_p.exists() else cur
-            return int(cur/mx*100) if mx else 0
-        except Exception:
-            pass
-    # AMD
-    busy = Path("/sys/class/drm/card0/device/gpu_busy_percent")
-    if busy.exists():
-        try: return int(busy.read_text().strip())
-        except Exception: pass
-    # NVIDIA
-    try:
-        r = subprocess.run(["nvidia-smi","--query-gpu=utilization.gpu","--format=csv,noheader,nounits"],
-                           capture_output=True, text=True, timeout=2)
-        if r.returncode == 0: return int(r.stdout.strip())
-    except Exception: pass
-    return 0
-
-def read_cpu():
-    try:
-        with open("/proc/stat") as f:
-            vals = list(map(int, f.readline().split()[1:]))
-        idle, total = vals[3], sum(vals)
-        if not hasattr(read_cpu, "_prev"):
-            read_cpu._prev = (idle, total)
-            return 0
-        pi, pt = read_cpu._prev
-        read_cpu._prev = (idle, total)
-        di, dt = idle-pi, total-pt
-        return int((1 - di/dt)*100) if dt else 0
-    except Exception: return 0
-
-def read_ram():
-    try:
-        info = {}
-        with open("/proc/meminfo") as f:
-            for line in f:
-                k, v = line.split(":")
-                info[k.strip()] = int(v.split()[0])
-        total = info.get("MemTotal",0) // 1024
-        avail = info.get("MemAvailable",0) // 1024
-        return total-avail, total
-    except Exception: return 0,0
-
-def read_net():
-    try:
-        if not hasattr(read_net, "_prev"):
-            read_net._prev = (0,0,time.time())
-            with open("/proc/net/dev") as f:
-                for line in f:
-                    if "ens" in line or "eth" in line or "wl" in line:
-                        cols = line.split()
-                        read_net._prev = (int(cols[9]), int(cols[1]), time.time())
-                        break
-            return 0,0
-        with open("/proc/net/dev") as f:
-            for line in f:
-                if "ens" in line or "eth" in line or "wl" in line:
-                    cols = line.split()
-                    tx, rx = int(cols[9]), int(cols[1])
-                    pt, pr, ptime = read_net._prev
-                    dt = time.time() - ptime
-                    read_net._prev = (tx, rx, time.time())
-                    if dt > 0:
-                        return int((tx-pt)/dt), int((rx-pr)/dt)
-    except Exception: pass
-    return 0,0
-
-def fmt_bytes(b):
-    if b < 1024: return f"{b}B/s"
-    if b < 1024*1024: return f"{b//1024}KB/s"
-    return f"{b//1024//1024}MB/s"
-
-# ── Mic monitoring ────────────────────────────────────────────────────────────
-
-def mic_monitor_thread():
-    """Continuously read mic levels. Always running."""
-    try:
-        import pyaudio
-        pa = pyaudio.PyAudio()
-        stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000,
-                         input=True, frames_per_buffer=1024)
-        while True:
-            try:
-                data = stream.read(1024, exception_on_overflow=False)
-                samples = struct.unpack(f"{len(data)//2}h", data)
-                rms = math.sqrt(sum(s*s for s in samples) / len(samples))
-                level = min(1.0, rms / 8000)
-                with state_lock:
-                    state["mic_level"] = level
-            except Exception:
-                time.sleep(0.1)
-    except Exception:
-        pass
-
-# ── Stats update thread ───────────────────────────────────────────────────────
-
-def stats_thread():
+# ── Hardware ──────────────────────────────────────────────────────────────────
+def hw_thread():
     while True:
         try:
-            pct, chg = read_battery()
-            cpu = read_cpu()
-            ru, rt = read_ram()
-            nu, nd = read_net()
-            gpu = read_gpu()
-            status = STATUS_FILE.read_text().strip() if STATUS_FILE.exists() else ""
-            ready  = READY_FLAG.exists()
-            with state_lock:
-                state["battery_pct"] = pct
-                state["battery_chg"] = chg
-                state["cpu_pct"] = cpu
-                state["ram_used"] = ru
-                state["ram_total"] = rt
-                state["net_up"] = nu
-                state["net_down"] = nd
-                state["gpu_pct"] = gpu
-                state["model_status"] = status
-                state["model_ready"] = ready
-        except Exception:
-            pass
+            # Battery
+            for b in ["BAT0","BAT1"]:
+                p = Path(f"/sys/class/power_supply/{b}/capacity")
+                if p.exists():
+                    pct = int(p.read_text())
+                    chg = Path(f"/sys/class/power_supply/{b}/status").read_text().strip() == "Charging"
+                    with SL: S["bat"] = pct; S["bat_chg"] = chg
+                    break
+            # GPU (Intel)
+            for g in Path("/sys/class/drm").glob("card*/gt_cur_freq_mhz"):
+                mx = g.parent / "gt_max_freq_mhz"
+                if mx.exists():
+                    pct = int(int(g.read_text()) / int(mx.read_text()) * 100)
+                    with SL: S["gpu"] = pct
+                    break
+            # CPU
+            with open("/proc/stat") as f:
+                vals = list(map(int, f.readline().split()[1:]))
+            idle, total = vals[3], sum(vals)
+            if not hasattr(hw_thread, "prev"):
+                hw_thread.prev = (idle, total)
+            pi, pt = hw_thread.prev; hw_thread.prev = (idle, total)
+            di, dt = idle-pi, total-pt
+            with SL: S["cpu"] = int((1 - di/dt)*100) if dt else 0
+            # RAM
+            info = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    k, v = line.split(":")
+                    info[k.strip()] = int(v.split()[0])
+            rt = info.get("MemTotal",0)//1024
+            ru = rt - info.get("MemAvailable",0)//1024
+            with SL: S["ram_used"] = ru; S["ram_total"] = rt
+            # Volume
+            try:
+                r = subprocess.run(["amixer","get","Master"], capture_output=True, text=True, timeout=1)
+                for line in r.stdout.split("\n"):
+                    if "%" in line:
+                        vol = int(line.split("[")[1].split("%")[0])
+                        with SL: S["vol"] = vol
+                        break
+            except Exception: pass
+            # AI status
+            st = STATUS_FILE.read_text().strip() if STATUS_FILE.exists() else ""
+            rdy = READY_FLAG.exists()
+            with SL: S["ai_status"] = st; S["ai_ready"] = rdy
+        except Exception: pass
         time.sleep(1)
 
-# ── Voice FIFO reader ─────────────────────────────────────────────────────────
+def mic_thread():
+    """Continuously read mic level — suppress ALL stderr to avoid ALSA spam."""
+    try:
+        import pyaudio, os as _os
+        # Redirect stderr to suppress ALSA/Jack errors
+        devnull = _os.open("/dev/null", _os.O_WRONLY)
+        old_err = _os.dup(2)
+        _os.dup2(devnull, 2)
+        try:
+            pa = pyaudio.PyAudio()
+            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000,
+                             input=True, frames_per_buffer=512)
+            _os.dup2(old_err, 2)  # restore stderr
+            while True:
+                try:
+                    data = stream.read(512, exception_on_overflow=False)
+                    samples = struct.unpack(f"{len(data)//2}h", data)
+                    rms = math.sqrt(sum(s*s for s in samples) / len(samples))
+                    with SL: S["mic"] = min(1.0, rms / 6000)
+                except Exception: time.sleep(0.05)
+        except Exception:
+            _os.dup2(old_err, 2)
+    except Exception: pass
 
 def voice_thread():
     try:
@@ -188,268 +146,179 @@ def voice_thread():
             with open(VOICE_FIFO) as f:
                 line = f.read().strip()
                 if line:
-                    with state_lock:
-                        state["voice_queue"].append(line)
-    except Exception:
-        pass
+                    with SL: S["voice_q"].append(line)
+    except Exception: pass
 
-# ── AI connector ──────────────────────────────────────────────────────────────
-
-async def ask_ai(message: str) -> str:
-    try:
-        payload = json.dumps({
-            "model": "qwen2.5:0.5b",
-            "messages": [
-                {"role": "system", "content": "You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise."},
-                {"role": "user", "content": message}
-            ],
-            "stream": False,
-            "options": {"num_ctx": 2048, "temperature": 0.7, "num_predict": 256}
-        }).encode()
-        req = urllib.request.Request("http://localhost:11434/api/chat",
-            data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read())
-            return result.get("message", {}).get("content", "").strip()
-    except Exception as e:
-        return f"[AI error: {e}]"
-
-def ai_available() -> bool:
+# ── AI ────────────────────────────────────────────────────────────────────────
+def ai_available():
     try:
         urllib.request.urlopen("http://localhost:11434/api/version", timeout=1)
         return True
-    except Exception:
-        return False
+    except Exception: return False
 
-# ── Drawing helpers ───────────────────────────────────────────────────────────
+async def ask_ai(msg):
+    payload = json.dumps({
+        "model": "qwen2.5:0.5b",
+        "messages": [
+            {"role":"system","content":"You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise."},
+            {"role":"user","content": msg}
+        ],
+        "stream": False,
+        "options": {"num_ctx":2048,"temperature":0.7,"num_predict":256}
+    }).encode()
+    req = urllib.request.Request("http://localhost:11434/api/chat",
+        data=payload, headers={"Content-Type":"application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return json.loads(resp.read()).get("message",{}).get("content","").strip()
 
-def bar(pct, width, fill="█", empty="░"):
-    filled = int(width * pct / 100)
-    return fill * filled + empty * (width - filled)
+def fmt_bytes(b):
+    if b < 1024: return f"{b}B/s"
+    if b < 1048576: return f"{b//1024}K/s"
+    return f"{b//1048576}M/s"
 
-def mic_bar(level, width):
-    filled = int(width * level)
-    return "▄" * filled + " " * (width - filled)
-
-def draw_box(win, y, x, h, w, title=""):
+# ── Render ────────────────────────────────────────────────────────────────────
+def render(messages, input_buf):
     try:
-        win.addstr(y, x, "┌" + "─"*(w-2) + "┐")
-        for i in range(1, h-1):
-            win.addstr(y+i, x, "│" + " "*(w-2) + "│")
-        win.addstr(y+h-1, x, "└" + "─"*(w-2) + "┘")
-        if title:
-            t = f" {title} "
-            win.addstr(y, x+2, t, curses.A_BOLD)
-    except curses.error:
-        pass
+        cols = int(subprocess.run(["tput","cols"], capture_output=True, text=True).stdout.strip())
+        rows = int(subprocess.run(["tput","lines"], capture_output=True, text=True).stdout.strip())
+    except Exception: cols, rows = 80, 24
 
-def draw_panel_mic(win, y, x, h, w):
-    with state_lock:
-        level = state["mic_level"]
-        recording = state["recording"]
-    draw_box(win, y, x, h, w, "microphone" + (" 🔴" if recording else ""))
-    bw = w - 4
-    b = mic_bar(level, bw)
-    pct = int(level * 100)
-    color = curses.color_pair(2) if recording else curses.color_pair(3)
-    try:
-        win.addstr(y+1, x+2, b[:bw], color)
-        win.addstr(y+1, x+w-5, f"{pct:3d}%")
-    except curses.error: pass
+    with SL:
+        mic   = S["mic"]; vol = S["vol"]; gpu = S["gpu"]
+        bat   = S["bat"]; bat_chg = S["bat_chg"]; cpu = S["cpu"]
+        ru    = S["ram_used"]; rt = S["ram_total"]
+        nu    = S["net_up"]; nd = S["net_down"]
+        ai_st = S["ai_status"]; ai_rdy = S["ai_ready"]
+        rec   = S["recording"]
 
-def draw_panel_speaker(win, y, x, h, w):
-    try:
-        r = subprocess.run(["amixer","get","Master"], capture_output=True, text=True, timeout=1)
-        pct = 0
-        for line in r.stdout.split("\n"):
-            if "%" in line:
-                pct = int(line.split("[")[1].split("%")[0])
-                break
-    except Exception: pct = 0
-    draw_box(win, y, x, h, w, "speaker")
-    bw = w-4
-    try:
-        win.addstr(y+1, x+2, bar(pct, bw), curses.color_pair(4))
-        win.addstr(y+1, x+w-5, f"{pct:3d}%")
-    except curses.error: pass
+    out = []
 
-def draw_panel_gpu(win, y, x, h, w):
-    with state_lock: pct = state["gpu_pct"]
-    draw_box(win, y, x, h, w, "gpu")
-    try: win.addstr(y+1, x+2, f"{pct:3d}%", curses.color_pair(5) if pct > 50 else curses.A_NORMAL)
-    except curses.error: pass
+    # ── Row 1: mic | speaker | gpu | battery ─────────────────────────────────
+    half = cols // 2; q = cols // 4; eq = cols - q*3
+    mic_title = "microphone 🔴" if rec else "microphone"
+    bw = q - 8
+    mic_lines  = [f"{mic_bar(mic, bw)} {int(mic*100):3d}%"]
+    spk_lines  = [f"{bar(vol, bw)} {vol:3d}%"]
+    gpu_lines  = [f"{bar(gpu, 4)} {gpu:3d}%"]
+    bat_label  = f"{bat}% ⚡" if bat_chg else f"{bat}%" if bat >= 0 else "N/A"
+    bat_color  = green if bat > 50 else yellow if bat > 20 else red
+    bat_lines  = [bat_color(bat_label)]
 
-def draw_panel_battery(win, y, x, h, w):
-    with state_lock:
-        pct = state["battery_pct"]
-        chg = state["battery_chg"]
-    draw_box(win, y, x, h, w, "battery")
-    if pct < 0:
-        label = "N/A"
-    else:
-        label = f"{pct}% {'⚡' if chg else ''}"
-    color = curses.color_pair(2) if pct > 50 else (curses.color_pair(6) if pct > 20 else curses.color_pair(1))
-    try: win.addstr(y+1, x+2, label, color)
-    except curses.error: pass
+    row1_boxes = [
+        box(mic_title, mic_lines, q),
+        box("speaker", spk_lines, q),
+        box("gpu", gpu_lines, q),
+        box("battery", bat_lines, eq),
+    ]
+    for i in range(3):
+        line = ""
+        for b_lines in row1_boxes:
+            line += b_lines[i] if i < len(b_lines) else ""
+        out.append(line[:cols])
 
-def draw_panel_ai(win, y, x, h, w):
-    with state_lock:
-        status = state["model_status"]
-        ready  = state["model_ready"]
-    draw_box(win, y, x, h, w, "ai model")
-    if ready:
-        try:
-            win.addstr(y+1, x+2, "qwen2.5:0.5b", curses.color_pair(2) | curses.A_BOLD)
-            win.addstr(y+2, x+2, "ready ✓", curses.color_pair(2))
-        except curses.error: pass
+    # ── Row 2: ai status | system ─────────────────────────────────────────────
+    if ai_rdy:
+        ai_lines = [green("qwen2.5:0.5b  ready ✓"), dim("Hold Caps Lock to speak")]
     else:
         pct = 0
-        if "%" in status:
-            try: pct = int(status.split("%")[0].split()[-1])
+        if "%" in ai_st:
+            try: pct = int(ai_st.split("%")[0].split()[-1])
             except Exception: pass
-        bw = w-4
-        try:
-            win.addstr(y+1, x+2, status[:w-4], curses.color_pair(3))
-            win.addstr(y+2, x+2, bar(pct, bw), curses.color_pair(3))
-        except curses.error: pass
+        bw2 = half - 8
+        ai_lines = [ai_st[:half-4], f"{bar(pct, bw2)} {pct}%"]
 
-def draw_panel_system(win, y, x, h, w):
-    with state_lock:
-        cpu = state["cpu_pct"]
-        ru  = state["ram_used"]
-        rt  = state["ram_total"]
-        nu  = state["net_up"]
-        nd  = state["net_down"]
-    draw_box(win, y, x, h, w, "system")
-    bw = w-12
-    try:
-        win.addstr(y+1, x+2, f"CPU {cpu:3d}% ", curses.A_BOLD)
-        win.addstr(y+1, x+10, bar(cpu, bw), curses.color_pair(5) if cpu > 70 else curses.color_pair(4))
-        ram_pct = int(ru/rt*100) if rt else 0
-        win.addstr(y+2, x+2, f"RAM {ru}MB/{rt}MB")
-        win.addstr(y+3, x+2, f"NET ↑{fmt_bytes(nu)} ↓{fmt_bytes(nd)}")
-    except curses.error: pass
+    sw = cols - half
+    sys_lines = [
+        f"CPU {cpu:3d}%  {bar(cpu, sw-12)}",
+        f"RAM {ru}MB / {rt}MB",
+        f"NET ↑{fmt_bytes(nu)}  ↓{fmt_bytes(nd)}",
+    ]
+    ai_box  = box("ai model", ai_lines, half)
+    sys_box = box("system",   sys_lines, sw)
+    for i in range(4):
+        al = ai_box[i]  if i < len(ai_box)  else " " * half
+        sl = sys_box[i] if i < len(sys_box) else ""
+        out.append((al + sl)[:cols])
 
-# ── Main UI ───────────────────────────────────────────────────────────────────
+    # ── Conversation ──────────────────────────────────────────────────────────
+    conv_h = rows - len(out) - 4
+    out.append("┌" + f" conversation ".center(cols-2, "─") + "┐")
+    visible = messages[-(conv_h):]
+    for role, text in visible:
+        line = f"  {role}: {text}"
+        if role == "AI":
+            out.append("│" + cyan(line[:cols-4]).ljust(cols-2) + "│")
+        else:
+            out.append("│" + green(line[:cols-4]).ljust(cols-2) + "│")
+    for _ in range(conv_h - len(visible)):
+        out.append("│" + " "*(cols-2) + "│")
+    out.append("└" + "─"*(cols-2) + "┘")
 
-async def dashboard_main(stdscr):
-    curses.curs_set(1)
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_RED,     -1)
-    curses.init_pair(2, curses.COLOR_GREEN,   -1)
-    curses.init_pair(3, curses.COLOR_CYAN,    -1)
-    curses.init_pair(4, curses.COLOR_BLUE,    -1)
-    curses.init_pair(5, curses.COLOR_YELLOW,  -1)
-    curses.init_pair(6, curses.COLOR_MAGENTA, -1)
-    stdscr.nodelay(True)
-    stdscr.keypad(True)
+    # ── Input bar ─────────────────────────────────────────────────────────────
+    prompt = "  You: " + input_buf
+    hint   = dim("  [Caps Lock] speak  │  [Right Ctrl] VM  │  [Enter] send  │  [Esc] quit")
+    out.append(prompt[:cols])
+    out.append(hint[:cols])
 
-    # Start background threads
-    threading.Thread(target=mic_monitor_thread, daemon=True).start()
-    threading.Thread(target=stats_thread,       daemon=True).start()
-    threading.Thread(target=voice_thread,       daemon=True).start()
+    cls()
+    print("\n".join(out), flush=True)
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+async def main():
+    threading.Thread(target=hw_thread,    daemon=True).start()
+    threading.Thread(target=mic_thread,   daemon=True).start()
+    threading.Thread(target=voice_thread, daemon=True).start()
+
+    messages = [("AI", "Starting up — model loading below...")]
+    if ai_available():
+        messages = [("AI", "I'm ready. What would you like to do?")]
 
     input_buf = ""
-    messages = []
+    os.system("tput civis 2>/dev/null")  # hide cursor during render
 
-    # AI greeting
-    if ai_available():
-        messages.append(("AI", "I'm ready. What would you like to do?"))
-    else:
-        messages.append(("AI", "Starting up — model loading in the status panel below."))
-
-    while True:
-        try:
-            H, W = stdscr.getmaxyx()
-            stdscr.erase()
-
-            # ── Row 1: top panels ──────────────────────────────────────────────
-            mic_w = W//4; spk_w = W//4; gpu_w = W//8; bat_w = W - mic_w - spk_w - gpu_w
-            draw_panel_mic(     stdscr, 0, 0,               3, mic_w)
-            draw_panel_speaker( stdscr, 0, mic_w,            3, spk_w)
-            draw_panel_gpu(     stdscr, 0, mic_w+spk_w,      3, gpu_w)
-            draw_panel_battery( stdscr, 0, mic_w+spk_w+gpu_w,3, bat_w)
-
-            # ── Row 2: ai + system ─────────────────────────────────────────────
-            ai_w  = W//2; sys_w = W - ai_w
-            draw_panel_ai(     stdscr, 3, 0,    4, ai_w)
-            draw_panel_system( stdscr, 3, ai_w, 4, sys_w)
-
-            # ── Conversation pane ──────────────────────────────────────────────
-            conv_y = 7
-            conv_h = H - conv_y - 3
-            draw_box(stdscr, conv_y, 0, conv_h, W, "conversation")
-            visible = messages[-(conv_h-2):]
-            for i, (role, text) in enumerate(visible):
-                color = curses.color_pair(3)|curses.A_BOLD if role=="AI" else curses.color_pair(2)|curses.A_BOLD
-                line  = f"  {role}: {text}"[:W-3]
-                try: stdscr.addstr(conv_y+1+i, 1, line, color if role=="AI" else curses.A_NORMAL)
-                except curses.error: pass
-
-            # ── Input bar ──────────────────────────────────────────────────────
-            prompt = "  You: "
-            hint   = "  [Caps Lock] speak  │  [Right Ctrl] VM  │  [Enter] send  │  [Esc] quit"
-            try:
-                stdscr.addstr(H-3, 0, "─"*W)
-                stdscr.addstr(H-2, 0, prompt + input_buf[:W-len(prompt)-2])
-                stdscr.addstr(H-1, 0, hint[:W-1], curses.color_pair(3))
-            except curses.error: pass
-
-            stdscr.refresh()
-
-            # ── Input handling ─────────────────────────────────────────────────
-            # Check voice queue
-            with state_lock:
-                vq = state["voice_queue"][:]
-                state["voice_queue"].clear()
-            for voice_text in vq:
-                input_buf = voice_text
-
-            # Keyboard
-            try:
-                ch = stdscr.getch()
-            except Exception:
-                ch = -1
-
-            if ch == 27:  # Esc
-                break
-            elif ch == 10 or ch == 13:  # Enter
-                if input_buf.strip():
-                    user_msg = input_buf.strip()
-                    input_buf = ""
-                    messages.append(("You", user_msg))
-                    messages.append(("AI", "thinking..."))
-                    stdscr.refresh()
-                    if ai_available():
-                        response = await ask_ai(user_msg)
-                        messages[-1] = ("AI", response)
-                    else:
-                        messages[-1] = ("AI", "AI is still loading. Check status panel.")
-            elif ch == curses.KEY_BACKSPACE or ch == 127:
-                input_buf = input_buf[:-1]
-            elif 32 <= ch <= 126:
-                input_buf += chr(ch)
-
-            await asyncio.sleep(0.1)
-
-        except Exception:
-            await asyncio.sleep(0.1)
-
-
-def main():
-    # Create event loop first, then pass it into curses.wrapper
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        curses.wrapper(lambda s: loop.run_until_complete(dashboard_main(s)))
-    except Exception as e:
-        print(f"\n[Dashboard error: {e}]\nFalling back to text mode...")
-        import time; time.sleep(2)
-        os.execv("/opt/archspeech/bin/python3",
-                 ["/opt/archspeech/bin/python3", "/usr/local/bin/archspeech-live"])
+        while True:
+            with SL:
+                vq = S["voice_q"][:]
+                S["voice_q"].clear()
+            for vt in vq:
+                input_buf = vt
+
+            render(messages, input_buf)
+
+            # Non-blocking keyboard
+            import termios, tty
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.15)
+                if rlist:
+                    ch = sys.stdin.read(1)
+                    if ch == "\x1b":  # Esc
+                        break
+                    elif ch in ("\r", "\n"):
+                        if input_buf.strip():
+                            msg = input_buf.strip()
+                            input_buf = ""
+                            messages.append(("You", msg))
+                            messages.append(("AI", "thinking..."))
+                            render(messages, input_buf)
+                            try:
+                                resp = await ask_ai(msg)
+                                messages[-1] = ("AI", resp)
+                            except Exception as e:
+                                messages[-1] = ("AI", f"Error: {e}")
+                    elif ch == "\x7f":
+                        input_buf = input_buf[:-1]
+                    elif ch.isprintable():
+                        input_buf += ch
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+            await asyncio.sleep(0.05)
     finally:
-        loop.close()
+        os.system("tput cnorm 2>/dev/null")  # restore cursor
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
