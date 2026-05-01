@@ -146,7 +146,7 @@ fi
 print_header "Inference Benchmark"
 
 run_test() {
-    local desc="$1" prompt="$2"
+    local desc="$1" prompt="$2" gpu_layers="${3:-999}"
     info "Test: $desc"
 
     local t0=$(date +%s%N)
@@ -158,7 +158,7 @@ run_test() {
             \"messages\": [{\"role\":\"user\",\"content\":\"/no_think\\n$prompt\"}],
             \"think\": false,
             \"stream\": false,
-            \"options\": {\"num_ctx\":2048,\"temperature\":0.7,\"num_predict\":256}
+            \"options\": {\"num_ctx\":2048,\"temperature\":0.7,\"num_predict\":256,\"num_gpu\":$gpu_layers}
         }" 2>/dev/null)
     local t1=$(date +%s%N)
 
@@ -182,13 +182,18 @@ run_test() {
     log ""
 }
 
-# Cold load — model not in memory yet
+# ── GPU mode (default — uses whatever GPU is available) ───────────────────────
+echo -e "\n${BOLD}--- GPU mode ---${RESET}"
 run_test "Cold load + simple greeting" "Say hello in one sentence."
-
-# Warm — model already in VRAM
 run_test "Warm: system command" "How do I update all packages on Arch Linux?"
 run_test "Warm: quick question" "What is pacman?"
-run_test "Warm: short answer" "List 3 common pacman commands."
+
+# ── CPU-only mode (simulates Intel iGPU / slower hardware) ───────────────────
+echo -e "\n${BOLD}--- CPU-only mode (simulates Intel iGPU baseline) ---${RESET}"
+log "=== CPU-only (num_gpu=0) ==="
+run_test "CPU cold: greeting"        "Say hello in one sentence."              0
+run_test "CPU warm: system command"  "How do I update all packages on Arch?"   0
+run_test "CPU warm: quick question"  "What is pacman?"                         0
 
 # ── GPU info ──────────────────────────────────────────────────────────────────
 print_header "GPU Allocation"
