@@ -55,7 +55,7 @@ if curl -sf "$OLLAMA_URL/api/version" &>/dev/null; then
 else
     info "Starting Ollama server..."
     OLLAMA_START_TIME=$(date +%s%N)
-    OLLAMA_MODELS=/tmp/aios-bench-models ollama serve &>/tmp/ollama-bench.log &
+    ollama serve &>/tmp/ollama-bench.log &
     OLLAMA_PID=$!
 
     elapsed=0
