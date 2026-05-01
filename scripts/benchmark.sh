@@ -63,7 +63,10 @@ run_test() {
         -H 'Content-Type: application/json' \
         -d "{
             \"model\": \"$MODEL_NAME\",
-            \"messages\": [{\"role\":\"user\",\"content\":\"$prompt\"}],
+            \"messages\": [
+                {\"role\":\"system\",\"content\":\"You are AIos, an AI assistant for Arch Linux. Give short direct commands. Use pacman for packages, systemctl for services. Be concise.\"},
+                {\"role\":\"user\",\"content\":\"$prompt\"}
+            ],
             \"stream\": false,
             \"options\": {
                 \"num_ctx\": 2048,
