@@ -29,12 +29,13 @@ else
     ollama pull qwen2.5:0.5b
     echo "▶ Staging Ollama model store into airootfs..."
     mkdir -p "$OLLAMA_STAGED"
-    OLLAMA_HOME="${HOME}/.ollama"
+    # Ollama system service stores models at /var/lib/ollama
+    OLLAMA_HOME="/var/lib/ollama"
     if [ -d "$OLLAMA_HOME/models" ]; then
         cp -r "$OLLAMA_HOME/models" "$OLLAMA_STAGED/"
         echo "✓ Ollama model store staged ($(du -sh "$OLLAMA_STAGED/models" | cut -f1))"
     else
-        echo "⚠ Could not find Ollama models at $OLLAMA_HOME — model will pull on first boot"
+        echo "⚠ Models not found at $OLLAMA_HOME — model will pull on first boot (needs internet)"
     fi
 fi
 
