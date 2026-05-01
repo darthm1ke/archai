@@ -4,7 +4,7 @@ iso_name="aios"
 iso_label="AIOS_$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y%m)"
 iso_publisher="AIos Project"
 iso_application="AIos - AI-native Linux powered by Arch"
-iso_version="0.3.0"
+iso_version="0.4.0"
 install_dir="arch"
 buildmodes=('iso')
 bootmodes=('bios.syslinux' 'uefi.systemd-boot')
